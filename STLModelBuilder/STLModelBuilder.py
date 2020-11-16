@@ -3,11 +3,9 @@ import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
-import MRIBreastVolume
 import time
 import sitkUtils
 import SimpleITK as sitk
-import MRIBreastVolumeFunctions
 import numpy as np
 import math
 
@@ -23,7 +21,7 @@ class STLModelBuilder(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
     self.parent.title = "STLModelBuilder" # TODO make this more human readable by adding spaces
-    self.parent.categories = ["Examples"]
+    self.parent.categories = ["NCTU"]
     self.parent.dependencies = []
     self.parent.contributors = ["John Doe (AnyWare Corp.)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
@@ -88,8 +86,6 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
   
   def onReload(self):
     ScriptedLoadableModuleWidget.onReload(self)
-    reload(MRIBreastVolumeFunctions.PectoralSideModule)
-    reload(MRIBreastVolumeFunctions.BreastSideModule)
 
 #
 # BatchTestingLogic
@@ -125,7 +121,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
     logging.info('Processing started')
 
-""" Batch code 
+    """ 
     inputNodeNames = ['Patient 1', 'Patient 2', 'Patient 3', 'Patient 4',\
                       'Patient 5', 'Patient 6', 'Patient 7', 'Patient 8',\
                       'Patient 9', 'Patient 10', 'Patient 11', 'Patient 12',\
@@ -139,11 +135,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
                         1000, 1000, 1000, 1000,\
                         8000, 8000, 1000, 10000,\
                         4000, 1000]
-"""
+    """
 
-    inputNodeNames =['Patient 1']  """for test"""
+    inputNodeNames =['Patient 1']
     iterationCounts = [4000]
-    logic = MRIBreastVolume.MRIBreastVolumeLogic()
 
     print "Start time: ", time.localtime(time.time())
 
@@ -167,12 +162,8 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     inputImage = sitk.Flip(inputImage, [direction[0] < 0, direction[4] < 0, direction[8] < 0])
 
     #inputImage = sitk.Normalize(inputImage)
-    value1Region = MRIBreastVolumeFunctions.PectoralSideModule.GetValue1Region(inputImage)
-    edgeMap = MRIBreastVolumeFunctions.PectoralSideModule.GenerateEdgeMap(inputImage)
-    prunedEdgeMap = MRIBreastVolumeFunctions.PectoralSideModule.PruneEdgeMap(edgeMap, value1Region)
 
-    roughPectoralShape = MRIBreastVolumeFunctions.PectoralSideModule.GetRoughPectoralShape(value1Region, 1000)
-    outputImage = MRIBreastVolumeFunctions.PectoralSideModule.SnapToEdge(roughPectoralShape, prunedEdgeMap)
+
     #value1Region = MRIBreastVolumeFunctions.PectoralSideModule.GetValue1Region(otsuMultiple)
     #edgeMap = MRIBreastVolumeFunctions.PectoralSideModule.GenerateEdgeMap(otsuMultiple)
     #outputImage = MRIBreastVolumeFunctions.PectoralSideModule.PruneEdgeMap(edgeMap, value1Region)
