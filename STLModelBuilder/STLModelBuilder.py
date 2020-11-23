@@ -28,7 +28,7 @@ class STLModelBuilder(ScriptedLoadableModule):
         self.parent.categories = ["NCTU"]
         self.parent.dependencies = []
         # replace with "Firstname Lastname (Organization)"
-        self.parent.contributors = ["John Doe (AnyWare Corp.)"]
+        self.parent.contributors = ["NCTU CG Lab"]
         self.parent.helpText = """
 This is an example of scripted loadable module bundled in an extension.
 It performs a simple thresholding on the input volume and optionally captures a screenshot.
@@ -135,22 +135,100 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         """
         Run the actual algorithm
         """
-        logging.info('----Start Processing----')
+        print("----Start Processing----")
         print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())) + "\n")
 
-        polygon_number = inputSTL.GetMesh().GetNumberOfCells()
-        
         STL_points_array = slicer.util.arrayFromModelPoints(inputSTL)
-        STL_Poly_array = slicer.util.arrayFromModelPolyIds(inputSTL)
+        STL_poly_array = slicer.util.arrayFromModelPolyIds(inputSTL)
 
-        #for poly_id in range(polygon_number):
+        point_count = len(STL_points_array)
+        poly_count = len(STL_poly_array) // 4
+        print("三角形數量:{0}".format(poly_count))
+
+        np_poly_array = np.zeros((poly_count, 3))
+
+        edge_hash = {}
+        vertex_hash = {}
+        poly_hash = [[] for i in range(poly_count)]
+
+        #Build edge and vertex datastruct
+        for poly_id in range(poly_count):
+        	vertices = STL_poly_array[poly_id * 4 + 1 : poly_id * 4 + 4]
+        	np_poly_array[poly_id] = np.array(vertices)
+
+        	self.addEdge(poly_id, vertices[0], vertices[1], edge_hash)
+        	self.addEdge(poly_id, vertices[1], vertices[2], edge_hash)
+        	self.addEdge(poly_id, vertices[0], vertices[2], edge_hash)
+
+        	self.addVertex(poly_id, vertices[0], vertex_hash)
+        	self.addVertex(poly_id, vertices[1], vertex_hash)
+        	self.addVertex(poly_id, vertices[2], vertex_hash)
+
+        for edge in edge_hash.keys():
+        	if len(edge_hash[edge]) > 2:
+        		print("重邊, 頂點: {0}, {1}".format(edge[0], edge[1]))
+        	elif len(edge_hash[edge]) < 2:
+        		print("邊緣, 頂點: {0}, {1}".format(edge[0], edge[1]))
+        	else:
+        		self.addPoly(edge_hash[edge][0], edge_hash[edge][1], poly_hash)
+
+        poly_group = [-1] * poly_count #-1 if not visit
+        group_id = 0
+
+        #Build graph with DFS
+        for poly_id in range(poly_count):
+        	if poly_group[poly_id] == -1:
+        		self.buildGroup(poly_id, group_id, poly_hash, poly_group)
+        		group_id += 1
+
+        print(len(poly_group))
 
         slicer.util.arrayFromModelPointsModified(inputSTL)
+        self.rebuildNormals(inputSTL)
 
-        logging.info('\n----Complete Processing----')
+        print("\n----Complete Processing----")
         print("Complete time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
 
+
         return True
+
+    def addEdge(self, poly, vertex1, vertex2, edge_hash):
+        if (vertex1 < vertex2):
+            edge = (vertex1, vertex2)
+        else:
+            edge = (vertex2, vertex1)
+
+        if edge not in edge_hash:
+            edge_hash[edge] = []
+        edge_hash[edge].append(poly)
+
+    def addVertex(self, poly, vertex, vertex_hash):
+        if vertex not in vertex_hash:
+            vertex_hash[vertex] = []
+        vertex_hash[vertex].append(poly)
+
+    def addPoly(self, poly1, poly2, poly_hash):
+        if poly1 not in poly_hash:
+            poly_hash[poly1] = []
+        if poly2 not in poly_hash:
+            poly_hash[poly2] = []
+        poly_hash[poly1].append(poly2)
+        poly_hash[poly2].append(poly1)
+
+    def buildGroup(self, poly, group, poly_connection, poly_group):
+        if poly_group[poly] != -1:
+            return
+
+        poly_group[poly] = group
+        for adj_poly in poly_connection[poly]:
+            self.buildGroup(adj_poly, group, poly_connection, poly_group)
+
+    def rebuildNormals(self, model):
+        normals = vtk.vtkPolyDataNormals()
+        normals.SetInputData(model.GetPolyData())
+        normals.ComputePointNormalsOn()
+        normals.SplittingOn()
+        normals.Update()
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
