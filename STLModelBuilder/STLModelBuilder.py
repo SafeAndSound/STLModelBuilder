@@ -1,3 +1,4 @@
+import sys
 import os
 import unittest
 import vtk
@@ -5,6 +6,7 @@ import qt
 import ctk
 import slicer
 from slicer.ScriptedLoadableModule import *
+from vtk.util.numpy_support import vtk_to_numpy
 import logging
 import time
 import sitkUtils
@@ -12,9 +14,12 @@ import SimpleITK as sitk
 import numpy as np
 import math
 
+import obj
+
 #
 # STLModelBuilder
 #
+
 
 class STLModelBuilder(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
@@ -67,27 +72,42 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         #
         # input volume selector
         #
-        self.inputSelector = slicer.qMRMLNodeComboBox()
-        self.inputSelector.nodeTypes = ["vtkMRMLModelNode"]
-        self.inputSelector.selectNodeUponCreation = True
-        self.inputSelector.addEnabled = False
-        self.inputSelector.removeEnabled = False
-        self.inputSelector.noneEnabled = False
-        self.inputSelector.showHidden = False
-        self.inputSelector.showChildNodeTypes = False
-        self.inputSelector.setMRMLScene( slicer.mrmlScene )
-        self.inputSelector.setToolTip( "Pick the input to the algorithm." )
-        parametersFormLayout.addRow("Input STL Model: ", self.inputSelector)
+        self.inputModelSelector = slicer.qMRMLNodeComboBox()
+        self.inputModelSelector.nodeTypes = ["vtkMRMLModelNode"]
+        self.inputModelSelector.selectNodeUponCreation = True
+        self.inputModelSelector.addEnabled = False
+        self.inputModelSelector.removeEnabled = False
+        self.inputModelSelector.noneEnabled = False
+        self.inputModelSelector.showHidden = False
+        self.inputModelSelector.showChildNodeTypes = False
+        self.inputModelSelector.setMRMLScene( slicer.mrmlScene )
+        self.inputModelSelector.setToolTip( "Model node containing geometry and texture coordinates." )
+        parametersFormLayout.addRow("Input OBJ Model: ", self.inputModelSelector)
+
+        #input texture selector
+        self.inputTextureSelector = slicer.qMRMLNodeComboBox()
+        self.inputTextureSelector.nodeTypes = [ "vtkMRMLVectorVolumeNode" ]
+        self.inputTextureSelector.addEnabled = False
+        self.inputTextureSelector.removeEnabled = False
+        self.inputTextureSelector.noneEnabled = False
+        self.inputTextureSelector.showHidden = False
+        self.inputTextureSelector.showChildNodeTypes = False
+        self.inputTextureSelector.setMRMLScene( slicer.mrmlScene )
+        self.inputTextureSelector.setToolTip( "Color image containing texture image." )
+        parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
 
         #
         # Apply Button
         #
         self.applyButton = qt.QPushButton("Start Processing")
         self.applyButton.toolTip = "Run the algorithm."
+        self.applyButton.enabled = False
         parametersFormLayout.addRow(self.applyButton)
 
         # connections
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
+        self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
+        self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
 
         # Add vertical spacer
         self.layout.addStretch(1)
@@ -99,14 +119,15 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         pass
 
     def onSelect(self):
-        pass
+        self.applyButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
 
     def onApplyButton(self):
         logic = STLModelBuilderLogic()
-        logic.run(self.inputSelector.currentNode())
+        logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
 
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
+
 
 class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
@@ -130,105 +151,168 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             logging.debug('hasImageData failed: no image data in volume node')
             return False
         return True
+    
+    def showTextureOnModel(self, modelNode, textureImageNode):
+        modelDisplayNode = modelNode.GetDisplayNode()
+        modelDisplayNode.SetBackfaceCulling(0)
+        textureImageFlipVert = vtk.vtkImageFlip()
+        textureImageFlipVert.SetFilteredAxis(1)
+        textureImageFlipVert.SetInputConnection(textureImageNode.GetImageDataConnection())
+        modelDisplayNode.SetTextureImageDataConnection(textureImageFlipVert.GetOutputPort())
+    
+    def convertTextureToPointAttribute(self, modelNode, textureImageNode):
+        polyData = modelNode.GetPolyData()
+        textureImageFlipVert = vtk.vtkImageFlip()
+        textureImageFlipVert.SetFilteredAxis(1)
+        textureImageFlipVert.SetInputConnection(textureImageNode.GetImageDataConnection())
+        textureImageFlipVert.Update()
+        textureImageData = textureImageFlipVert.GetOutput()
+        pointData = polyData.GetPointData()
+        tcoords = pointData.GetTCoords()
+        numOfPoints = pointData.GetNumberOfTuples()
+        assert numOfPoints == tcoords.GetNumberOfTuples(), "Number of texture coordinates does not equal number of points"
+        textureSamplingPointsUv = vtk.vtkPoints()
+        textureSamplingPointsUv.SetNumberOfPoints(numOfPoints)
+        for pointIndex in range(numOfPoints):
+            uv = tcoords.GetTuple2(pointIndex)
+            textureSamplingPointsUv.SetPoint(pointIndex, uv[0], uv[1], 0)
 
-    def run(self, inputSTL):
+        textureSamplingPointDataUv = vtk.vtkPolyData()
+        uvToXyz = vtk.vtkTransform()
+        textureImageDataSpacingSpacing = textureImageData.GetSpacing()
+        textureImageDataSpacingOrigin = textureImageData.GetOrigin()
+        textureImageDataSpacingDimensions = textureImageData.GetDimensions()
+        uvToXyz.Scale(textureImageDataSpacingDimensions[0] / textureImageDataSpacingSpacing[0],
+                  textureImageDataSpacingDimensions[1] / textureImageDataSpacingSpacing[1], 1)
+        uvToXyz.Translate(textureImageDataSpacingOrigin)
+        textureSamplingPointDataUv.SetPoints(textureSamplingPointsUv)
+        transformPolyDataToXyz = vtk.vtkTransformPolyDataFilter()
+        transformPolyDataToXyz.SetInputData(textureSamplingPointDataUv)
+        transformPolyDataToXyz.SetTransform(uvToXyz)
+        probeFilter = vtk.vtkProbeFilter()
+        probeFilter.SetInputConnection(transformPolyDataToXyz.GetOutputPort())
+        probeFilter.SetSourceData(textureImageData)
+        probeFilter.Update()
+        rgbPoints = probeFilter.GetOutput().GetPointData().GetArray('ImageScalars')
+
+        colorArray = vtk.vtkDoubleArray()
+        colorArray.SetName('Color')
+        colorArray.SetNumberOfComponents(3)
+        colorArray.SetNumberOfTuples(numOfPoints)
+        for pointIndex in range(numOfPoints):
+            rgb = rgbPoints.GetTuple3(pointIndex)
+            colorArray.SetTuple3(pointIndex, rgb[0]/255., rgb[1]/255., rgb[2]/255.)
+            colorArray.Modified()
+            pointData.AddArray(colorArray)
+
+        pointData.Modified()
+        polyData.Modified()
+
+    def run(self, modelNode, textureImageNode):
         """
         Run the actual algorithm
         """
         print("----Start Processing----")
-        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())) + "\n")
+        startTime = time.time()
+        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
 
-        STL_points_array = slicer.util.arrayFromModelPoints(inputSTL)
-        STL_poly_array = slicer.util.arrayFromModelPolyIds(inputSTL)
+        #取得vtkMRMLModelNode讀取的檔案
+        fileName = modelNode.GetStorageNode().GetFileName()
 
-        point_count = len(STL_points_array)
-        poly_count = len(STL_poly_array) // 4
-        print("三角形數量:{0}".format(poly_count))
+        self.preprocessPolyData(modelNode)
 
-        np_poly_array = np.zeros((poly_count, 3))
+        self.showTextureOnModel(modelNode, textureImageNode)
+        self.convertTextureToPointAttribute(modelNode, textureImageNode)
 
-        edge_hash = {}
-        vertex_hash = {}
-        poly_hash = [[] for i in range(poly_count)]
+        colorData = modelNode.GetPolyData().GetPointData().GetArray("Color")
+        colorData_np = vtk_to_numpy(colorData)
+        print(colorData_np)
+        print(colorData_np[25671])
 
-        #Build edge and vertex datastruct
-        for poly_id in range(poly_count):
-        	vertices = STL_poly_array[poly_id * 4 + 1 : poly_id * 4 + 4]
-        	np_poly_array[poly_id] = np.array(vertices)
-
-        	self.addEdge(poly_id, vertices[0], vertices[1], edge_hash)
-        	self.addEdge(poly_id, vertices[1], vertices[2], edge_hash)
-        	self.addEdge(poly_id, vertices[0], vertices[2], edge_hash)
-
-        	self.addVertex(poly_id, vertices[0], vertex_hash)
-        	self.addVertex(poly_id, vertices[1], vertex_hash)
-        	self.addVertex(poly_id, vertices[2], vertex_hash)
-
-        for edge in edge_hash.keys():
-        	if len(edge_hash[edge]) > 2:
-        		print("重邊, 頂點: {0}, {1}".format(edge[0], edge[1]))
-        	elif len(edge_hash[edge]) < 2:
-        		print("邊緣, 頂點: {0}, {1}".format(edge[0], edge[1]))
-        	else:
-        		self.addPoly(edge_hash[edge][0], edge_hash[edge][1], poly_hash)
-
-        poly_group = [-1] * poly_count #-1 if not visit
-        group_id = 0
-
-        #Build graph with DFS
-        for poly_id in range(poly_count):
-        	if poly_group[poly_id] == -1:
-        		self.buildGroup(poly_id, group_id, poly_hash, poly_group)
-        		group_id += 1
-
-        print(len(poly_group))
-
-        slicer.util.arrayFromModelPointsModified(inputSTL)
-        self.rebuildNormals(inputSTL)
+        self.extractSelection(modelNode, colorData_np, np.array([0.30588235, 0.4745098,  0.64313725]), 0.5)
 
         print("\n----Complete Processing----")
-        print("Complete time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
-
+        stopTime = time.time()
+        print("Complete time: " +
+              time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
+        logging.info('Processing completed in {0:.2f} seconds'.format(stopTime - startTime))
 
         return True
+    
+    def preprocessPolyData(self, modelNode):
+        #decimate
+        triangleFilter = vtk.vtkTriangleFilter()
+        triangleFilter.SetInputData(modelNode.GetPolyData())
+        triangleFilter.Update()
+        decimateFilter = vtk.vtkDecimatePro()
+        decimateFilter.SetInputConnection(triangleFilter.GetOutputPort())
+        decimateFilter.SetTargetReduction(0.25)
+        decimateFilter.PreserveTopologyOn()
+        decimateFilter.BoundaryVertexDeletionOff()
+        decimateFilter.Update()
 
-    def addEdge(self, poly, vertex1, vertex2, edge_hash):
-        if (vertex1 < vertex2):
-            edge = (vertex1, vertex2)
-        else:
-            edge = (vertex2, vertex1)
+        #clean
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(decimateFilter.GetOutputPort())
+        cleanFilter.Update()
 
-        if edge not in edge_hash:
-            edge_hash[edge] = []
-        edge_hash[edge].append(poly)
+        #relax
+        relaxFilter = vtk.vtkWindowedSincPolyDataFilter()
+        relaxFilter.SetInputConnection(cleanFilter.GetOutputPort())
+        relaxFilter.SetNumberOfIterations(10)
+        relaxFilter.BoundarySmoothingOn()
+        relaxFilter.FeatureEdgeSmoothingOn()
+        relaxFilter.SetFeatureAngle(120.0)
+        relaxFilter.SetPassBand(0.001)
+        relaxFilter.NonManifoldSmoothingOn()
+        relaxFilter.NormalizeCoordinatesOn()
+        relaxFilter.Update()
 
-    def addVertex(self, poly, vertex, vertex_hash):
-        if vertex not in vertex_hash:
-            vertex_hash[vertex] = []
-        vertex_hash[vertex].append(poly)
+        #connect
+        connectFilter = vtk.vtkPolyDataConnectivityFilter()
+        connectFilter.SetInputConnection(relaxFilter.GetOutputPort())
+        connectFilter.SetExtractionModeToLargestRegion()
+        connectFilter.Update()
 
-    def addPoly(self, poly1, poly2, poly_hash):
-        if poly1 not in poly_hash:
-            poly_hash[poly1] = []
-        if poly2 not in poly_hash:
-            poly_hash[poly2] = []
-        poly_hash[poly1].append(poly2)
-        poly_hash[poly2].append(poly1)
+        #normal
+        normalFilter = vtk.vtkPolyDataNormals()
+        normalFilter.SetInputConnection(connectFilter.GetOutputPort())
+        normalFilter.ComputePointNormalsOn()
+        normalFilter.SplittingOff()
+        normalFilter.Update()
 
-    def buildGroup(self, poly, group, poly_connection, poly_group):
-        if poly_group[poly] != -1:
-            return
+        #alignCenter
+        polyData = normalFilter.GetOutput()
+        points_array = vtk_to_numpy(polyData.GetPoints().GetData())
+        center = points_array.sum(axis = 0) / points_array.shape[0]
+        np.copyto(points_array, points_array - center)
+        polyData.GetPoints().GetData().Modified()
 
-        poly_group[poly] = group
-        for adj_poly in poly_connection[poly]:
-            self.buildGroup(adj_poly, group, poly_connection, poly_group)
+        modelNode.SetAndObservePolyData(polyData)
 
-    def rebuildNormals(self, model):
-        normals = vtk.vtkPolyDataNormals()
-        normals.SetInputData(model.GetPolyData())
-        normals.ComputePointNormalsOn()
-        normals.SplittingOn()
-        normals.Update()
+    def extractSelection(self, modelNode, colorData, targetColor, threshold):
+        targetId = np.asarray(np.where(np.linalg.norm(colorData - targetColor, axis=1, keepdims=True) < threshold))[0]
+        print(targetId)
+
+        ids = vtk.vtkIdTypeArray()
+        ids.SetNumberOfComponents(1)
+        for id in targetId:
+            ids.InsertNextValue(id)
+        
+        selectionNode = vtk.vtkSelectionNode()
+        selectionNode.SetFieldType(1) # POINT
+        selectionNode.SetContentType(4) # INDICES
+        selectionNode.SetSelectionList(ids)
+
+        selection = vtk.vtkSelection()
+        selection.AddNode(selectionNode)
+
+        extractSelection = vtk.vtkExtractSelection()
+        extractSelection.SetInputData(0, modelNode.GetPolyData())
+        extractSelection.SetInputData(1, selection)
+        extractSelection.Update()
+
+        print(extractSelection.GetOutput())
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
