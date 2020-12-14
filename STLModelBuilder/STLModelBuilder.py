@@ -94,6 +94,12 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.inputTextureSelector.setToolTip( "Color image containing texture image." )
         parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
 
+        #inpute color selector
+        self.targetColor = qt.QColor("DarkGray")
+        self.colorButton = qt.QPushButton()
+        self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
+        parametersFormLayout.addRow("Marker Color:", self.colorButton)
+
         #
         # Apply Button
         #
@@ -104,6 +110,7 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
 
         # connections
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
+        self.colorButton.connect('clicked(bool)', self.onSelectColor)
         self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
         self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
 
@@ -119,9 +126,14 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
     def onSelect(self):
         self.applyButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
 
+    def onSelectColor(self):
+        self.targetColor = qt.QColorDialog.getColor()
+        self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
+        self.colorButton.update()
+
     def onApplyButton(self):
         logic = STLModelBuilderLogic()
-        logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
+        logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
 
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
@@ -206,7 +218,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         pointData.Modified()
         polyData.Modified()
 
-    def run(self, modelNode, textureImageNode):
+    def run(self, modelNode, textureImageNode, targetColor):
         """
         Run the actual algorithm
         """
@@ -214,9 +226,13 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         startTime = time.time()
         print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
 
+        #轉換顏色格式:QColor -> np.array
+        targetColor = np.array([targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
+        print("Selected Color: {}".format(targetColor))
+
         #取得vtkMRMLModelNode讀取的檔案
         fileName = modelNode.GetStorageNode().GetFileName()
-        print("OBJ File Path: {}".format(fileName))
+        print("OBJ File Path: {}\n".format(fileName))
 
         #產生點的顏色資料
         self.convertTextureToPointAttribute(modelNode, textureImageNode)
@@ -224,11 +240,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         #取出顏色資料(可由上一步簡化)
         colorData = modelNode.GetPolyData().GetPointData().GetArray("Color")
         colorData_np = vtk_to_numpy(colorData)
-        print(colorData_np)
-        print(colorData_np[25671])
 
         #取出顏色於範圍內的點id
-        delPointIds = self.extractSelection(modelNode, colorData_np, np.array([0.30588235, 0.4745098,  0.64313725]), 0.5)
+        delPointIds = self.extractSelection(modelNode, colorData_np, targetColor, 0.5)
 
         #刪除顏色符合的點
         self.deletePoint(modelNode, delPointIds)
@@ -299,7 +313,6 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
     def extractSelection(self, modelNode, colorData, targetColor, threshold):
         targetId = np.asarray(np.where(np.linalg.norm(colorData - targetColor, axis=1, keepdims=True) < threshold))[0]
-        print(targetId)
         
         return targetId
 
@@ -311,7 +324,6 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         oldPoints = vtk_to_numpy(polyData.GetPoints().GetData())
         oldNumberOfPoints = oldPoints.shape[0]
-        print(oldNumberOfPoints)
 
         numberOfdelPoints = delPointIds.shape[0]
 
