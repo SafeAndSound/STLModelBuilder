@@ -14,8 +14,6 @@ import SimpleITK as sitk
 import numpy as np
 import math
 
-import obj
-
 #
 # STLModelBuilder
 #
@@ -218,18 +216,26 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         #取得vtkMRMLModelNode讀取的檔案
         fileName = modelNode.GetStorageNode().GetFileName()
+        print("OBJ File Path: {}".format(fileName))
 
-        self.preprocessPolyData(modelNode)
-
-        self.showTextureOnModel(modelNode, textureImageNode)
+        #產生點的顏色資料
         self.convertTextureToPointAttribute(modelNode, textureImageNode)
 
+        #取出顏色資料(可由上一步簡化)
         colorData = modelNode.GetPolyData().GetPointData().GetArray("Color")
         colorData_np = vtk_to_numpy(colorData)
         print(colorData_np)
         print(colorData_np[25671])
 
-        self.extractSelection(modelNode, colorData_np, np.array([0.30588235, 0.4745098,  0.64313725]), 0.5)
+        #取出顏色於範圍內的點id
+        delPointIds = self.extractSelection(modelNode, colorData_np, np.array([0.30588235, 0.4745098,  0.64313725]), 0.5)
+
+        #刪除顏色符合的點
+        self.deletePoint(modelNode, delPointIds)
+
+        self.preprocessPolyData(modelNode)
+
+        self.showTextureOnModel(modelNode, textureImageNode)
 
         print("\n----Complete Processing----")
         stopTime = time.time()
@@ -244,6 +250,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputData(modelNode.GetPolyData())
         triangleFilter.Update()
+        
         decimateFilter = vtk.vtkDecimatePro()
         decimateFilter.SetInputConnection(triangleFilter.GetOutputPort())
         decimateFilter.SetTargetReduction(0.25)
@@ -293,26 +300,67 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     def extractSelection(self, modelNode, colorData, targetColor, threshold):
         targetId = np.asarray(np.where(np.linalg.norm(colorData - targetColor, axis=1, keepdims=True) < threshold))[0]
         print(targetId)
-
-        ids = vtk.vtkIdTypeArray()
-        ids.SetNumberOfComponents(1)
-        for id in targetId:
-            ids.InsertNextValue(id)
         
-        selectionNode = vtk.vtkSelectionNode()
-        selectionNode.SetFieldType(1) # POINT
-        selectionNode.SetContentType(4) # INDICES
-        selectionNode.SetSelectionList(ids)
+        return targetId
 
-        selection = vtk.vtkSelection()
-        selection.AddNode(selectionNode)
+    def deletePoint(self, modelNode, delPointIds):
+        #會破壞texcoord 有改善空間
+        polyData = modelNode.GetPolyData()
+        pPoints = vtk.vtkPoints()
+        cellArray = vtk.vtkCellArray()
 
-        extractSelection = vtk.vtkExtractSelection()
-        extractSelection.SetInputData(0, modelNode.GetPolyData())
-        extractSelection.SetInputData(1, selection)
-        extractSelection.Update()
+        oldPoints = vtk_to_numpy(polyData.GetPoints().GetData())
+        oldNumberOfPoints = oldPoints.shape[0]
+        print(oldNumberOfPoints)
 
-        print(extractSelection.GetOutput())
+        numberOfdelPoints = delPointIds.shape[0]
+
+        #將所有的poly轉為numpy array
+        #直接將所有包含delPointIds的cell移除
+        cells = polyData.GetPolys()
+        numberOfCells = cells.GetNumberOfCells()
+        array = cells.GetData()
+        assert(array.GetNumberOfValues() % numberOfCells == 0)
+        pointPerCell = array.GetNumberOfValues() // numberOfCells #1 + n
+        numpy_cells = vtk_to_numpy(array)
+        numpy_cells = np.delete(numpy_cells.reshape((-1, pointPerCell)), 0, axis=1)
+        pointPerCell -= 1
+
+        cumulate = 0
+        idMapping = [0] * oldNumberOfPoints
+        for pid in range(oldNumberOfPoints):
+            idMapping[pid] = pid - cumulate
+
+            if cumulate == numberOfdelPoints:
+                pPoints.InsertNextPoint(oldPoints[pid])
+                continue
+
+            #移除在delPointIds中的點
+            if pid != delPointIds[cumulate]:
+                pPoints.InsertNextPoint(oldPoints[pid])
+
+            #計算移動後的點id
+            if pid == delPointIds[cumulate]:
+                cumulate += 1
+
+        for cell in numpy_cells:
+            polygon = vtk.vtkPolygon()
+            polygon.GetPointIds().SetNumberOfIds(pointPerCell)
+            discard = False
+
+            for pid in range(pointPerCell):
+                if cell[pid] in delPointIds: #cell shoud be discard
+                    discard = True
+                    break
+
+                polygon.GetPointIds().SetId(pid, idMapping[cell[pid]])
+    
+            if not discard:
+                cellArray.InsertNextCell(polygon)
+
+        polyData.SetPoints(pPoints)
+        polyData.SetPolys(cellArray)
+        polyData.Modified()
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
