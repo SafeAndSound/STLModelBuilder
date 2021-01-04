@@ -103,12 +103,21 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         #
         # Apply Button
         #
+        self.textureButton = qt.QPushButton("Apply Texture")
+        self.textureButton.toolTip = "Paste the texture onto the model."
+        self.textureButton.enabled = False
+        parametersFormLayout.addRow(self.textureButton)
+
+        #
+        # Apply Button
+        #
         self.applyButton = qt.QPushButton("Start Processing")
         self.applyButton.toolTip = "Run the algorithm."
         self.applyButton.enabled = False
         parametersFormLayout.addRow(self.applyButton)
 
         # connections
+        self.textureButton.connect('clicked(bool)', self.onTextureButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
         self.colorButton.connect('clicked(bool)', self.onSelectColor)
         self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
@@ -120,20 +129,25 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         # Refresh Apply button state
         self.onSelect()
 
+        self.logic = STLModelBuilderLogic()
+
     def cleanup(self):
         pass
 
     def onSelect(self):
+        self.textureButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
         self.applyButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
 
     def onSelectColor(self):
         self.targetColor = qt.QColorDialog.getColor()
         self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
         self.colorButton.update()
+    
+    def onTextureButton(self):
+        self.logic.showTextureOnModel(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
 
     def onApplyButton(self):
-        logic = STLModelBuilderLogic()
-        logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
+        self.logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
 
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
@@ -226,6 +240,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         startTime = time.time()
         print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
 
+        newPolyData = vtk.vtkPolyData()
+        newPolyData.DeepCopy(modelNode.GetPolyData())
+        newModelNode = self.createNewModelNode(newPolyData, "Modified_Model")
+
         #轉換顏色格式:QColor -> np.array
         targetColor = np.array([targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
         print("Selected Color: {}".format(targetColor))
@@ -235,39 +253,38 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         print("OBJ File Path: {}\n".format(fileName))
 
         #產生點的顏色資料
-        self.convertTextureToPointAttribute(modelNode, textureImageNode)
-
-        #取出顏色資料(可由上一步簡化)
-        colorData = modelNode.GetPolyData().GetPointData().GetArray("Color")
-        colorData_np = vtk_to_numpy(colorData)
+        self.convertTextureToPointAttribute(newModelNode, textureImageNode)
 
         #取出顏色於範圍內的點id
-        delPointIds = self.extractSelection(modelNode, colorData_np, targetColor, 0.5)
+        delPointIds = self.extractSelection(newModelNode, targetColor, 0.25)
 
         #刪除顏色符合的點
-        self.deletePoint(modelNode, delPointIds)
+        self.deletePoint(newModelNode, delPointIds)
 
-        self.preprocessPolyData(modelNode)
+        #處理PolyData (降低面數、破洞處理......)
+        self.preprocessPolyData(newModelNode)
 
-        self.showTextureOnModel(modelNode, textureImageNode)
+        edgePointIds = self.extractBoundaryIds(newModelNode)
+        print(edgePointIds)
+        print(edgePointIds.shape[0])
 
         print("\n----Complete Processing----")
         stopTime = time.time()
-        print("Complete time: " +
-              time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
-        logging.info('Processing completed in {0:.2f} seconds'.format(stopTime - startTime))
+        print("Complete time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
+        logging.info('Processing completed in {0:.2f} seconds\n'.format(stopTime - startTime))
 
         return True
     
     def preprocessPolyData(self, modelNode):
-        #decimate
+        #triangulate
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputData(modelNode.GetPolyData())
         triangleFilter.Update()
-        
+
+        #decimate
         decimateFilter = vtk.vtkDecimatePro()
         decimateFilter.SetInputConnection(triangleFilter.GetOutputPort())
-        decimateFilter.SetTargetReduction(0.25)
+        decimateFilter.SetTargetReduction(0.5)
         decimateFilter.PreserveTopologyOn()
         decimateFilter.BoundaryVertexDeletionOff()
         decimateFilter.Update()
@@ -311,15 +328,15 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         modelNode.SetAndObservePolyData(polyData)
 
-    def extractSelection(self, modelNode, colorData, targetColor, threshold):
-        targetId = np.asarray(np.where(np.linalg.norm(colorData - targetColor, axis=1, keepdims=True) < threshold))[0]
-        
-        return targetId
+    def extractSelection(self, modelNode, targetColor, threshold):
+        colorData = vtk_to_numpy(modelNode.GetPolyData().GetPointData().GetArray("Color"))
+
+        return np.asarray(np.where(np.sum((colorData - targetColor) ** 2, axis=1) < threshold))[0]
 
     def deletePoint(self, modelNode, delPointIds):
         #會破壞texcoord 有改善空間
         polyData = modelNode.GetPolyData()
-        pPoints = vtk.vtkPoints()
+        points = vtk.vtkPoints()
         cellArray = vtk.vtkCellArray()
 
         oldPoints = vtk_to_numpy(polyData.GetPoints().GetData())
@@ -344,12 +361,12 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             idMapping[pid] = pid - cumulate
 
             if cumulate == numberOfdelPoints:
-                pPoints.InsertNextPoint(oldPoints[pid])
+                points.InsertNextPoint(oldPoints[pid])
                 continue
 
             #移除在delPointIds中的點
             if pid != delPointIds[cumulate]:
-                pPoints.InsertNextPoint(oldPoints[pid])
+                points.InsertNextPoint(oldPoints[pid])
 
             #計算移動後的點id
             if pid == delPointIds[cumulate]:
@@ -370,9 +387,38 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             if not discard:
                 cellArray.InsertNextCell(polygon)
 
-        polyData.SetPoints(pPoints)
+        polyData.SetPoints(points)
         polyData.SetPolys(cellArray)
         polyData.Modified()
+
+    def extractBoundaryIds(self, modelNode):
+        idFilter = vtk.vtkIdFilter()
+        idFilter.SetInputData(modelNode.GetPolyData())
+        idFilter.SetIdsArrayName("ids")
+        idFilter.PointIdsOn()
+        idFilter.CellIdsOff()
+        idFilter.Update()
+        
+        featureEdges = vtk.vtkFeatureEdges()
+        featureEdges.SetInputConnection(idFilter.GetOutputPort())
+        featureEdges.BoundaryEdgesOn()
+        featureEdges.FeatureEdgesOff()
+        featureEdges.ManifoldEdgesOff()
+        featureEdges.NonManifoldEdgesOff()
+        featureEdges.Update()
+
+        edgeIds = vtk_to_numpy(featureEdges.GetOutput().GetPointData().GetArray("ids"))
+
+        self.createNewModelNode(featureEdges.GetOutput(), "Edge")
+
+        return edgeIds
+
+    def createNewModelNode(self, polyData, nodeName):
+        modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
+        modelNode.SetName(nodeName)
+        modelNode.SetAndObservePolyData(polyData)
+
+        return modelNode
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
