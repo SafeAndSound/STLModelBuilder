@@ -256,15 +256,19 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         self.convertTextureToPointAttribute(newModelNode, textureImageNode)
 
         #取出顏色於範圍內的點id
-        delPointIds = self.extractSelection(newModelNode, targetColor, 0.25)
+        delPointIds = self.extractSelection(newModelNode, targetColor, 0.15)
 
         #刪除顏色符合的點
         self.deletePoint(newModelNode, delPointIds)
 
         #處理PolyData (降低面數、破洞處理......)
-        self.preprocessPolyData(newModelNode)
+        self.reduceAndCleanPolyData(newModelNode)
+
+        #取出胸部PolyData
+        #self.extractBreastPolyData(newModelNode)
 
         edgePointIds = self.extractBoundaryIds(newModelNode)
+
         print(edgePointIds)
         print(edgePointIds.shape[0])
 
@@ -275,7 +279,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         return True
     
-    def preprocessPolyData(self, modelNode):
+    def reduceAndCleanPolyData(self, modelNode):
         #triangulate
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputData(modelNode.GetPolyData())
@@ -284,7 +288,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         #decimate
         decimateFilter = vtk.vtkDecimatePro()
         decimateFilter.SetInputConnection(triangleFilter.GetOutputPort())
-        decimateFilter.SetTargetReduction(0.5)
+        decimateFilter.SetTargetReduction(0.33)
         decimateFilter.PreserveTopologyOn()
         decimateFilter.BoundaryVertexDeletionOff()
         decimateFilter.Update()
@@ -306,15 +310,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         relaxFilter.NormalizeCoordinatesOn()
         relaxFilter.Update()
 
-        #connect
-        connectFilter = vtk.vtkPolyDataConnectivityFilter()
-        connectFilter.SetInputConnection(relaxFilter.GetOutputPort())
-        connectFilter.SetExtractionModeToLargestRegion()
-        connectFilter.Update()
-
         #normal
         normalFilter = vtk.vtkPolyDataNormals()
-        normalFilter.SetInputConnection(connectFilter.GetOutputPort())
+        normalFilter.SetInputConnection(relaxFilter.GetOutputPort())
         normalFilter.ComputePointNormalsOn()
         normalFilter.SplittingOff()
         normalFilter.Update()
@@ -330,8 +328,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
     def extractSelection(self, modelNode, targetColor, threshold):
         colorData = vtk_to_numpy(modelNode.GetPolyData().GetPointData().GetArray("Color"))
+        colorData = np.sum(np.abs(colorData - targetColor), axis=1) / 3
+        print(colorData)
 
-        return np.asarray(np.where(np.sum((colorData - targetColor) ** 2, axis=1) < threshold))[0]
+        return np.asarray(np.where(colorData < threshold))[0]
 
     def deletePoint(self, modelNode, delPointIds):
         #會破壞texcoord 有改善空間
@@ -390,6 +390,25 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         polyData.SetPoints(points)
         polyData.SetPolys(cellArray)
         polyData.Modified()
+
+    def extractBreastPolyData(self, modelNode):
+        wholePolyData = modelNode.GetPolyData()
+
+        connectFilter = vtk.vtkConnectivityFilter()
+        connectFilter.SetInputData(modelNode.GetPolyData())
+        connectFilter.SetExtractionModeToLargestRegion()
+        connectFilter.Update()
+
+        bodyPolyData = connectFilter.GetOutput()
+
+        subtractFilter = vtk.vtkBooleanOperationPolyDataFilter()
+        subtractFilter.SetOperationToDifference()
+        subtractFilter.SetInputData(0, wholePolyData)
+        subtractFilter.SetInputData(1, bodyPolyData)
+        subtractFilter.Update()
+
+        #modelNode.SetAndObservePolyData(subtractFilter.GetOutput())
+        self.createNewModelNode(subtractFilter.GetOutput(), "Breast")
 
     def extractBoundaryIds(self, modelNode):
         idFilter = vtk.vtkIdFilter()
