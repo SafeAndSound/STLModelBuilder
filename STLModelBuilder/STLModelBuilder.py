@@ -7,12 +7,14 @@ import ctk
 import slicer
 from slicer.ScriptedLoadableModule import *
 from vtk.util.numpy_support import vtk_to_numpy
+from vtk.util.numpy_support import numpy_to_vtk
 import logging
 import time
 import sitkUtils
 import SimpleITK as sitk
 import numpy as np
 import math
+import random
 
 #
 # STLModelBuilder
@@ -252,11 +254,14 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         fileName = modelNode.GetStorageNode().GetFileName()
         print("OBJ File Path: {}\n".format(fileName))
 
+        print("Origin Model points: {}".format(modelNode.GetPolyData().GetNumberOfPoints()))
+        print("Origin Model cells: {}\n".format(modelNode.GetPolyData().GetNumberOfCells()))
+
         #產生點的顏色資料
         self.convertTextureToPointAttribute(newModelNode, textureImageNode)
 
         #取出顏色於範圍內的點id
-        delPointIds = self.extractSelection(newModelNode, targetColor, 0.15)
+        delPointIds = self.extractSelection(newModelNode, targetColor, 0.16)
 
         #刪除顏色符合的點
         self.deletePoint(newModelNode, delPointIds)
@@ -264,13 +269,16 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         #處理PolyData (降低面數、破洞處理......)
         self.reduceAndCleanPolyData(newModelNode)
 
+        print("Modified Model points: {}".format(newModelNode.GetPolyData().GetNumberOfPoints()))
+        print("Modified Model cells: {}\n".format(newModelNode.GetPolyData().GetNumberOfCells()))
+
         #取出胸部PolyData
-        #self.extractBreastPolyData(newModelNode)
+        self.extractBreastPolyData(newModelNode)
 
         edgePointIds = self.extractBoundaryIds(newModelNode)
 
-        print(edgePointIds)
-        print(edgePointIds.shape[0])
+        #print(edgePointIds)
+        #print(edgePointIds.shape[0])
 
         print("\n----Complete Processing----")
         stopTime = time.time()
@@ -329,10 +337,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     def extractSelection(self, modelNode, targetColor, threshold):
         colorData = vtk_to_numpy(modelNode.GetPolyData().GetPointData().GetArray("Color"))
         colorData = np.sum(np.abs(colorData - targetColor), axis=1) / 3
-        print(colorData)
 
         return np.asarray(np.where(colorData < threshold))[0]
 
+    """
     def deletePoint(self, modelNode, delPointIds):
         #會破壞texcoord 有改善空間
         polyData = modelNode.GetPolyData()
@@ -390,25 +398,37 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         polyData.SetPoints(points)
         polyData.SetPolys(cellArray)
         polyData.Modified()
+    """
+
+    def deletePoint(self, modelNode, delPointIds):
+        selectionNode = vtk.vtkSelectionNode()
+        selectionNode.SetFieldType(vtk.vtkSelectionNode.POINT)
+        selectionNode.SetContentType(vtk.vtkSelectionNode.INDICES)
+        selectionNode.SetSelectionList(numpy_to_vtk(delPointIds))
+        selectionNode.GetProperties().Set(vtk.vtkSelectionNode.INVERSE(), 1)
+        selectionNode.GetProperties().Set(vtk.vtkSelectionNode.CONTAINING_CELLS(), 1)
+        selection = vtk.vtkSelection()
+        selection.AddNode(selectionNode)
+
+        extractSelection = vtk.vtkExtractSelection()
+        extractSelection.SetInputData(0, modelNode.GetPolyData())
+        extractSelection.SetInputData(1, selection)
+        extractSelection.Update()
+
+        geometryFilter = vtk.vtkGeometryFilter()
+        geometryFilter.SetInputData(extractSelection.GetOutput())
+        geometryFilter.Update()
+
+        modelNode.SetAndObservePolyData(geometryFilter.GetOutput())
 
     def extractBreastPolyData(self, modelNode):
-        wholePolyData = modelNode.GetPolyData()
-
         connectFilter = vtk.vtkConnectivityFilter()
         connectFilter.SetInputData(modelNode.GetPolyData())
-        connectFilter.SetExtractionModeToLargestRegion()
+        connectFilter.SetExtractionModeToSpecifiedRegions()
+        connectFilter.AddSpecifiedRegion(1)
         connectFilter.Update()
 
-        bodyPolyData = connectFilter.GetOutput()
-
-        subtractFilter = vtk.vtkBooleanOperationPolyDataFilter()
-        subtractFilter.SetOperationToDifference()
-        subtractFilter.SetInputData(0, wholePolyData)
-        subtractFilter.SetInputData(1, bodyPolyData)
-        subtractFilter.Update()
-
-        #modelNode.SetAndObservePolyData(subtractFilter.GetOutput())
-        self.createNewModelNode(subtractFilter.GetOutput(), "Breast")
+        modelNode.SetAndObservePolyData(connectFilter.GetOutput())
 
     def extractBoundaryIds(self, modelNode):
         idFilter = vtk.vtkIdFilter()
@@ -418,17 +438,17 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         idFilter.CellIdsOff()
         idFilter.Update()
         
-        featureEdges = vtk.vtkFeatureEdges()
-        featureEdges.SetInputConnection(idFilter.GetOutputPort())
-        featureEdges.BoundaryEdgesOn()
-        featureEdges.FeatureEdgesOff()
-        featureEdges.ManifoldEdgesOff()
-        featureEdges.NonManifoldEdgesOff()
-        featureEdges.Update()
+        edgeFilter = vtk.vtkFeatureEdges()
+        edgeFilter.SetInputConnection(idFilter.GetOutputPort())
+        edgeFilter.BoundaryEdgesOn()
+        edgeFilter.FeatureEdgesOff()
+        edgeFilter.ManifoldEdgesOff()
+        edgeFilter.NonManifoldEdgesOff()
+        edgeFilter.Update()
 
-        edgeIds = vtk_to_numpy(featureEdges.GetOutput().GetPointData().GetArray("ids"))
+        edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
 
-        self.createNewModelNode(featureEdges.GetOutput(), "Edge")
+        self.createNewModelNode(edgeFilter.GetOutput(), "Edge")
 
         return edgeIds
 
