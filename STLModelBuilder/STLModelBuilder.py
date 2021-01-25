@@ -467,7 +467,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
             newNode = self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
             self.FillPolydataHole(newNode, 10)
-            print(self.extractBoundaryIds(newNode, "Edge_{}".format(i)))
+            edgePolydata = self.extractBoundaryPoints(newNode, "Edge_{}".format(i))
+            self.createBoundaryMesh(edgePolydata)
+
 
     def FillPolydataHole(self, modelNode, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
@@ -477,7 +479,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         modelNode.SetAndObservePolyData(holeFiller.GetOutput())
 
-    def extractBoundaryIds(self, modelNode, edgeName):
+    def extractBoundaryPoints(self, modelNode, edgeName):
         idFilter = vtk.vtkIdFilter()
         idFilter.SetInputData(modelNode.GetPolyData())
         idFilter.SetIdsArrayName("ids")
@@ -493,12 +495,19 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         edgeFilter.NonManifoldEdgesOff()
         edgeFilter.Update()
 
-        edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
+        #edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
 
         self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
-        return edgeIds
+        return edgeFilter.GetOutput()
+    
+    def createBoundaryMesh(self, Polydata):
+        delaunayFilter = vtk.vtkDelaunay2D()
+        delaunayFilter.SetInputData(Polydata)
+        delaunayFilter.SetTolerance(0.001)
+        delaunayFilter.Update()
 
+        self.createNewModelNode(delaunayFilter.GetOutput(), "Delaunay2D")
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
