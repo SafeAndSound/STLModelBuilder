@@ -96,47 +96,50 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.inputTextureSelector.setToolTip( "Color image containing texture image." )
         parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
 
-        #inpute color selector
+        # inpute color selector
         self.targetColor = qt.QColor("DarkGray")
         self.colorButton = qt.QPushButton()
         self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
         parametersFormLayout.addRow("Marker Color:", self.colorButton)
 
-        #
-        # Apply Button
-        #
+        # Texture Button
         self.textureButton = qt.QPushButton("Apply Texture")
         self.textureButton.toolTip = "Paste the texture onto the model."
         self.textureButton.enabled = False
         parametersFormLayout.addRow(self.textureButton)
 
-        #
         # Apply Button
-        #
-        self.applyButton = qt.QPushButton("Start Processing")
+        self.applyButton = qt.QPushButton("Remove Tape")
         self.applyButton.toolTip = "Run the algorithm."
         self.applyButton.enabled = False
         parametersFormLayout.addRow(self.applyButton)
 
+        # Select Breats
+        self.breatButton = qt.QPushButton("Finish Select Breats")
+        self.breatButton.toolTip = "Click after breats are selected."
+        self.breatButton.enabled = False
+        parametersFormLayout.addRow(self.breatButton)
+
         # connections
+        self.colorButton.connect('clicked(bool)', self.onSelectColor)
         self.textureButton.connect('clicked(bool)', self.onTextureButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
-        self.colorButton.connect('clicked(bool)', self.onSelectColor)
-        self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-        self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
+        self.breatButton.connect('clicked(bool)', self.onBreatButton)
+        self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
+        self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
+
+        self.onSelectInputData()
 
         # Add vertical spacer
         self.layout.addStretch(1)
 
-        # Refresh Apply button state
-        self.onSelect()
-
         self.logic = STLModelBuilderLogic()
+        self.logic.initiate(self)
 
     def cleanup(self):
         pass
 
-    def onSelect(self):
+    def onSelectInputData(self):
         self.textureButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
         self.applyButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
 
@@ -151,6 +154,13 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
     def onApplyButton(self):
         self.logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
 
+    def onBreatButton(self):
+        self.logic.truncateBreastPolyData("Reference_Breast_Position")
+
+    def finishPreProcessing(self):
+        self.breatButton.enabled = True
+        self.logic.setupFiducialNodeOperation("Reference_Breast_Position")
+        
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
 
@@ -165,18 +175,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
-    def hasImageData(self, volumeNode):
-        """This is an example logic method that
-        returns true if the passed in volume
-        node has valid image data
-        """
-        if not volumeNode:
-            logging.debug('hasImageData failed: no volume node')
-            return False
-        if volumeNode.GetImageData() is None:
-            logging.debug('hasImageData failed: no image data in volume node')
-            return False
-        return True
+    def initiate(self, widget):
+        self.widget = widget
+        self.modifidedModelNode = None
     
     def showTextureOnModel(self, modelNode, textureImageNode):
         modelDisplayNode = modelNode.GetDisplayNode()
@@ -244,7 +245,8 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         newPolyData = vtk.vtkPolyData()
         newPolyData.DeepCopy(modelNode.GetPolyData())
-        newModelNode = self.createNewModelNode(newPolyData, "Modified_Model")
+        self.modifidedModelNode = self.createNewModelNode(newPolyData, "Modified_Model")
+        newModelNode = self.modifidedModelNode
 
         #轉換顏色格式:QColor -> np.array
         targetColor = np.array([targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
@@ -254,8 +256,8 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         fileName = modelNode.GetStorageNode().GetFileName()
         print("OBJ File Path: {}\n".format(fileName))
 
-        print("Origin Model points: {}".format(modelNode.GetPolyData().GetNumberOfPoints()))
-        print("Origin Model cells: {}\n".format(modelNode.GetPolyData().GetNumberOfCells()))
+        print("Origin Model points: {}".format(self.modifidedModelNode.GetPolyData().GetNumberOfPoints()))
+        print("Origin Model cells: {}\n".format(self.modifidedModelNode.GetPolyData().GetNumberOfCells()))
 
         #產生點的顏色資料
         self.convertTextureToPointAttribute(newModelNode, textureImageNode)
@@ -272,13 +274,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         print("Modified Model points: {}".format(newModelNode.GetPolyData().GetNumberOfPoints()))
         print("Modified Model cells: {}\n".format(newModelNode.GetPolyData().GetNumberOfCells()))
 
-        #取出胸部PolyData
-        self.extractBreastPolyData(newModelNode)
+        modelNode.GetDisplayNode().VisibilityOff()
+        newModelNode.GetDisplayNode().VisibilityOn()
 
-        edgePointIds = self.extractBoundaryIds(newModelNode)
-
-        #print(edgePointIds)
-        #print(edgePointIds.shape[0])
+        self.widget.finishPreProcessing()
 
         print("\n----Complete Processing----")
         stopTime = time.time()
@@ -421,16 +420,64 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         modelNode.SetAndObservePolyData(geometryFilter.GetOutput())
 
-    def extractBreastPolyData(self, modelNode):
-        connectFilter = vtk.vtkConnectivityFilter()
-        connectFilter.SetInputData(modelNode.GetPolyData())
-        connectFilter.SetExtractionModeToSpecifiedRegions()
-        connectFilter.AddSpecifiedRegion(1)
-        connectFilter.Update()
+    def createNewModelNode(self, polyData, nodeName):
+        modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
+        modelNode.SetName(nodeName)
+        modelNode.CreateDefaultDisplayNodes()
+        modelNode.SetAndObservePolyData(polyData)
 
-        modelNode.SetAndObservePolyData(connectFilter.GetOutput())
+        return modelNode
 
-    def extractBoundaryIds(self, modelNode):
+    def setupFiducialNodeOperation(self, nodeName):
+        #Create fiducial node
+        fiducialNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLMarkupsFiducialNode())
+        fiducialNode.SetName(nodeName)
+
+        placeModePersistence = 1
+        slicer.modules.markups.logic().StartPlaceMode(placeModePersistence)
+
+    def truncateBreastPolyData(self, nodeName):
+        interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
+        interactionNode.SwitchToViewTransformMode()
+        # also turn off place mode persistence if required
+        interactionNode.SetPlaceModePersistence(0)
+
+        fiducialNode = slicer.util.getNode(nodeName)
+        numFids = fiducialNode.GetNumberOfFiducials()
+
+        breastPos = []
+        # Use the last 2 fiducials as two breast positions
+        for i in range(numFids - 2, numFids):
+            ras = [0,0,0]
+            fiducialNode.GetNthFiducialPosition(i, ras)
+            breastPos.append(ras)
+            # the world position is the RAS position with any transform matrices applied
+            world = [0,0,0,0]
+            fiducialNode.GetNthFiducialWorldCoordinates(i, world)
+            print(i, ": RAS =", ras, ", world =", world)
+        
+        slicer.mrmlScene.RemoveNode(fiducialNode)
+
+        for i in range(2):
+            connectFilter = vtk.vtkPolyDataConnectivityFilter()
+            connectFilter.SetInputData(self.modifidedModelNode.GetPolyData())
+            connectFilter.SetExtractionModeToClosestPointRegion()
+            connectFilter.SetClosestPoint(breastPos[i])
+            connectFilter.Update()
+
+            newNode = self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
+            self.FillPolydataHole(newNode, 10)
+            print(self.extractBoundaryIds(newNode, "Edge_{}".format(i)))
+
+    def FillPolydataHole(self, modelNode, holeSize):
+        holeFiller = vtk.vtkFillHolesFilter()
+        holeFiller.SetInputData(modelNode.GetPolyData())
+        holeFiller.SetHoleSize(holeSize)
+        holeFiller.Update()
+
+        modelNode.SetAndObservePolyData(holeFiller.GetOutput())
+
+    def extractBoundaryIds(self, modelNode, edgeName):
         idFilter = vtk.vtkIdFilter()
         idFilter.SetInputData(modelNode.GetPolyData())
         idFilter.SetIdsArrayName("ids")
@@ -448,16 +495,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
 
-        self.createNewModelNode(edgeFilter.GetOutput(), "Edge")
+        self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
         return edgeIds
 
-    def createNewModelNode(self, polyData, nodeName):
-        modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
-        modelNode.SetName(nodeName)
-        modelNode.SetAndObservePolyData(polyData)
-
-        return modelNode
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
@@ -502,5 +543,5 @@ class STLModelBuilderTest(ScriptedLoadableModuleTest):
 
         volumeNode = slicer.util.getNode(pattern="FA")
         logic = STLModelBuilderLogic()
-        self.assertIsNotNone(logic.hasImageData(volumeNode))
+        #self.assertIsNotNone(logic.hasImageData(volumeNode))
         self.delayDisplay('Test passed!')
