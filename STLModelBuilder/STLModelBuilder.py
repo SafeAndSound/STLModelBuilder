@@ -505,9 +505,18 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         delaunayFilter = vtk.vtkDelaunay2D()
         delaunayFilter.SetInputData(Polydata)
         delaunayFilter.SetTolerance(0.001)
+        #delaunayFilter.SetAlpha(0.2)
         delaunayFilter.Update()
 
-        self.createNewModelNode(delaunayFilter.GetOutput(), "Delaunay2D")
+        o = delaunayFilter.GetOutput()
+        cleanPolyData = vtk.vtkCleanPolyData()
+        cleanPolyData.SetInputData(o)
+        smooth_loop = vtk.vtkLoopSubdivisionFilter()
+        smooth_loop.SetNumberOfSubdivisions(3)
+        smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
+        smooth_loop.Update()
+
+        self.createNewModelNode(smooth_loop.GetOutput(), "Delaunay2D")
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
