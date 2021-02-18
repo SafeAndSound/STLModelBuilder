@@ -303,6 +303,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         #clean
         cleanFilter = vtk.vtkCleanPolyData()
         cleanFilter.SetInputConnection(decimateFilter.GetOutputPort())
+        cleanFilter.ConvertLinesToPointsOn()
+        cleanFilter.ConvertPolysToLinesOn()
+        cleanFilter.ConvertStripsToPolysOn()
         cleanFilter.Update()
 
         #relax
@@ -338,66 +341,6 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         colorData = np.sum(np.abs(colorData - targetColor), axis=1) / 3
 
         return np.asarray(np.where(colorData < threshold))[0]
-
-    """
-    def deletePoint(self, modelNode, delPointIds):
-        #會破壞texcoord 有改善空間
-        polyData = modelNode.GetPolyData()
-        points = vtk.vtkPoints()
-        cellArray = vtk.vtkCellArray()
-
-        oldPoints = vtk_to_numpy(polyData.GetPoints().GetData())
-        oldNumberOfPoints = oldPoints.shape[0]
-
-        numberOfdelPoints = delPointIds.shape[0]
-
-        #將所有的poly轉為numpy array
-        #直接將所有包含delPointIds的cell移除
-        cells = polyData.GetPolys()
-        numberOfCells = cells.GetNumberOfCells()
-        array = cells.GetData()
-        assert(array.GetNumberOfValues() % numberOfCells == 0)
-        pointPerCell = array.GetNumberOfValues() // numberOfCells #1 + n
-        numpy_cells = vtk_to_numpy(array)
-        numpy_cells = np.delete(numpy_cells.reshape((-1, pointPerCell)), 0, axis=1)
-        pointPerCell -= 1
-
-        cumulate = 0
-        idMapping = [0] * oldNumberOfPoints
-        for pid in range(oldNumberOfPoints):
-            idMapping[pid] = pid - cumulate
-
-            if cumulate == numberOfdelPoints:
-                points.InsertNextPoint(oldPoints[pid])
-                continue
-
-            #移除在delPointIds中的點
-            if pid != delPointIds[cumulate]:
-                points.InsertNextPoint(oldPoints[pid])
-
-            #計算移動後的點id
-            if pid == delPointIds[cumulate]:
-                cumulate += 1
-
-        for cell in numpy_cells:
-            polygon = vtk.vtkPolygon()
-            polygon.GetPointIds().SetNumberOfIds(pointPerCell)
-            discard = False
-
-            for pid in range(pointPerCell):
-                if cell[pid] in delPointIds: #cell shoud be discard
-                    discard = True
-                    break
-
-                polygon.GetPointIds().SetId(pid, idMapping[cell[pid]])
-    
-            if not discard:
-                cellArray.InsertNextCell(polygon)
-
-        polyData.SetPoints(points)
-        polyData.SetPolys(cellArray)
-        polyData.Modified()
-    """
 
     def deletePoint(self, modelNode, delPointIds):
         selectionNode = vtk.vtkSelectionNode()
@@ -466,22 +409,29 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             connectFilter.Update()
 
             newNode = self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
-            self.FillPolydataHole(newNode, 10)
-            edgePolydata = self.extractBoundaryPoints(newNode, "Edge_{}".format(i))
-            self.createBoundaryMesh(edgePolydata)
+            self.fillPolydataHole(newNode, 10)
+            edgePolydata = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_{}".format(i))
+            smoothedEdgePolydata = self.smoothBoundary(edgePolydata)
+            self.createBoundaryMesh(smoothedEdgePolydata)
 
 
-    def FillPolydataHole(self, modelNode, holeSize):
+    def fillPolydataHole(self, modelNode, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
         holeFiller.SetInputData(modelNode.GetPolyData())
         holeFiller.SetHoleSize(holeSize)
         holeFiller.Update()
 
-        modelNode.SetAndObservePolyData(holeFiller.GetOutput())
+        normalFilter = vtk.vtkPolyDataNormals()
+        normalFilter.SetInputConnection(holeFiller.GetOutputPort())
+        normalFilter.ComputePointNormalsOn()
+        normalFilter.SplittingOff()
+        normalFilter.Update()
 
-    def extractBoundaryPoints(self, modelNode, edgeName):
+        modelNode.SetAndObservePolyData(normalFilter.GetOutput())
+
+    def extractBoundaryPoints(self, polyData, edgeName = ""):
         idFilter = vtk.vtkIdFilter()
-        idFilter.SetInputData(modelNode.GetPolyData())
+        idFilter.SetInputData(polyData)
         idFilter.SetIdsArrayName("ids")
         idFilter.PointIdsOn()
         idFilter.CellIdsOff()
@@ -497,20 +447,30 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         #edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
 
-        self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
+        if edgeName != "":
+            self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
         return edgeFilter.GetOutput()
     
-    def createBoundaryMesh(self, Polydata):
+    def smoothBoundary(self, polyData):
         delaunayFilter = vtk.vtkDelaunay2D()
-        delaunayFilter.SetInputData(Polydata)
+        delaunayFilter.SetInputData(polyData)
         delaunayFilter.SetTolerance(0.001)
         #delaunayFilter.SetAlpha(0.2)
         delaunayFilter.Update()
 
-        o = delaunayFilter.GetOutput()
+        return self.extractBoundaryPoints(delaunayFilter.GetOutput())
+    
+    def createBoundaryMesh(self, polyData):
+        delaunayFilter = vtk.vtkDelaunay2D()
+        delaunayFilter.SetInputData(polyData)
+        delaunayFilter.SetTolerance(0.001)
+        #delaunayFilter.SetAlpha(0.2)
+        delaunayFilter.Update()
+
         cleanPolyData = vtk.vtkCleanPolyData()
-        cleanPolyData.SetInputData(o)
+        cleanPolyData.SetInputConnection(delaunayFilter.GetOutputPort())
+
         smooth_loop = vtk.vtkLoopSubdivisionFilter()
         smooth_loop.SetNumberOfSubdivisions(3)
         smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
