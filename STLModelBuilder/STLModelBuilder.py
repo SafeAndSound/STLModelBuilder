@@ -1,20 +1,20 @@
-import sys
-import os
-import unittest
-import vtk
-import qt
-import ctk
-import slicer
-from slicer.ScriptedLoadableModule import *
-from vtk.util.numpy_support import vtk_to_numpy
-from vtk.util.numpy_support import numpy_to_vtk
 import logging
-import time
-import sitkUtils
-import SimpleITK as sitk
-import numpy as np
 import math
+import os
 import random
+import sys
+import time
+import unittest
+
+import ctk
+import numpy as np
+import qt
+import SimpleITK as sitk
+import sitkUtils
+import slicer
+import vtk
+from slicer.ScriptedLoadableModule import *
+from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 #
 # STLModelBuilder
@@ -97,7 +97,7 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
 
         # inpute color selector
-        self.targetColor = qt.QColor("DarkGray")
+        self.targetColor = qt.QColor("#4573a0")
         self.colorButton = qt.QPushButton()
         self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
         parametersFormLayout.addRow("Marker Color:", self.colorButton)
@@ -163,7 +163,6 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
-
 
 class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
@@ -266,7 +265,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         delPointIds = self.extractSelection(newModelNode, targetColor, 0.16)
 
         #刪除顏色符合的點
-        self.deletePoint(newModelNode, delPointIds)
+        newModelNode.SetAndObservePolyData(self.deletePoint(newModelNode.GetPolyData(), delPointIds))
 
         #處理PolyData (降低面數、破洞處理......)
         self.reduceAndCleanPolyData(newModelNode)
@@ -342,7 +341,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         return np.asarray(np.where(colorData < threshold))[0]
 
-    def deletePoint(self, modelNode, delPointIds):
+    def deletePoint(self, polyData, delPointIds):
         selectionNode = vtk.vtkSelectionNode()
         selectionNode.SetFieldType(vtk.vtkSelectionNode.POINT)
         selectionNode.SetContentType(vtk.vtkSelectionNode.INDICES)
@@ -353,7 +352,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         selection.AddNode(selectionNode)
 
         extractSelection = vtk.vtkExtractSelection()
-        extractSelection.SetInputData(0, modelNode.GetPolyData())
+        extractSelection.SetInputData(0, polyData)
         extractSelection.SetInputData(1, selection)
         extractSelection.Update()
 
@@ -361,7 +360,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         geometryFilter.SetInputData(extractSelection.GetOutput())
         geometryFilter.Update()
 
-        modelNode.SetAndObservePolyData(geometryFilter.GetOutput())
+        return geometryFilter.GetOutput()
 
     def createNewModelNode(self, polyData, nodeName):
         modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
@@ -397,7 +396,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             # the world position is the RAS position with any transform matrices applied
             world = [0,0,0,0]
             fiducialNode.GetNthFiducialWorldCoordinates(i, world)
-            print(i, ": RAS =", ras, ", world =", world)
+            #print(i, ": RAS =", ras, ", world =", world)
         
         slicer.mrmlScene.RemoveNode(fiducialNode)
 
@@ -409,13 +408,18 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             connectFilter.Update()
 
             newNode = self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
-            self.fillPolydataHole(newNode, 10)
-            edgePolydata = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_{}".format(i))
-            smoothedEdgePolydata = self.smoothBoundary(edgePolydata)
-            self.createBoundaryMesh(smoothedEdgePolydata)
+            newNode.SetAndObservePolyData(self.refineBreastPolyData(newNode, 10))
 
+            for j in range(3): #邊緣平滑次數
+                _, edgeIds = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_{}_Smooth_{}".format(i, j))
+                self.smoothBoundary(newNode, edgeIds)
 
-    def fillPolydataHole(self, modelNode, holeSize):
+            edgePolydata, _ = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_Final_{}".format(i))
+
+            newBoundary = self.createBoundaryMesh(edgePolydata)
+            self.mergeBreastAndBoundary(newNode.GetPolyData(), newBoundary.GetPolyData())
+
+    def refineBreastPolyData(self, modelNode, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
         holeFiller.SetInputData(modelNode.GetPolyData())
         holeFiller.SetHoleSize(holeSize)
@@ -427,7 +431,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         normalFilter.SplittingOff()
         normalFilter.Update()
 
-        modelNode.SetAndObservePolyData(normalFilter.GetOutput())
+        return normalFilter.GetOutput()
 
     def extractBoundaryPoints(self, polyData, edgeName = ""):
         idFilter = vtk.vtkIdFilter()
@@ -445,38 +449,100 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         edgeFilter.NonManifoldEdgesOff()
         edgeFilter.Update()
 
-        #edgeIds = vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
-
         if edgeName != "":
+            print("Name:{} - Edge Id List:".format(edgeName))
+            print(vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids")))
             self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
-        return edgeFilter.GetOutput()
+        return edgeFilter.GetOutput(), vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
     
-    def smoothBoundary(self, polyData):
-        delaunayFilter = vtk.vtkDelaunay2D()
-        delaunayFilter.SetInputData(polyData)
-        delaunayFilter.SetTolerance(0.001)
-        #delaunayFilter.SetAlpha(0.2)
-        delaunayFilter.Update()
+    def smoothBoundary(self, modelNode, edgeIds):
+        nonEdgePolyData = self.deletePoint(modelNode.GetPolyData(), edgeIds)
 
-        return self.extractBoundaryPoints(delaunayFilter.GetOutput())
+        roughSmoothFilter = vtk.vtkSmoothPolyDataFilter()
+        roughSmoothFilter.SetInputData(modelNode.GetPolyData())
+        roughSmoothFilter.SetNumberOfIterations(10)
+        roughSmoothFilter.BoundarySmoothingOn()
+        roughSmoothFilter.SetEdgeAngle(180)
+        roughSmoothFilter.SetRelaxationFactor(1)
+        roughSmoothFilter.SetSourceData(nonEdgePolyData)
+        roughSmoothFilter.Update()
+
+        fineSmoothFilter = vtk.vtkSmoothPolyDataFilter()
+        fineSmoothFilter.SetInputConnection(roughSmoothFilter.GetOutputPort())
+        fineSmoothFilter.SetNumberOfIterations(100)
+        fineSmoothFilter.BoundarySmoothingOn()
+        fineSmoothFilter.SetEdgeAngle(180)
+        fineSmoothFilter.SetRelaxationFactor(0.0001)
+        fineSmoothFilter.SetSourceData(nonEdgePolyData)
+        fineSmoothFilter.Update()
+
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(fineSmoothFilter.GetOutputPort())
+        cleanFilter.ConvertLinesToPointsOn()
+        cleanFilter.ConvertPolysToLinesOn()
+        cleanFilter.ConvertStripsToPolysOn()
+        cleanFilter.Update()
+
+        modelNode.SetAndObservePolyData(cleanFilter.GetOutput())
     
     def createBoundaryMesh(self, polyData):
+        """
         delaunayFilter = vtk.vtkDelaunay2D()
         delaunayFilter.SetInputData(polyData)
         delaunayFilter.SetTolerance(0.001)
         #delaunayFilter.SetAlpha(0.2)
         delaunayFilter.Update()
+        """
+
+        contourFilter = vtk.vtkContourTriangulator()
+        contourFilter.SetInputData(polyData)
+        contourFilter.Update()
 
         cleanPolyData = vtk.vtkCleanPolyData()
-        cleanPolyData.SetInputConnection(delaunayFilter.GetOutputPort())
+        cleanPolyData.SetInputConnection(contourFilter.GetOutputPort())
+        cleanPolyData.SetTolerance(0.0001)
+        cleanPolyData.Update()
 
-        smooth_loop = vtk.vtkLoopSubdivisionFilter()
-        smooth_loop.SetNumberOfSubdivisions(3)
-        smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
-        smooth_loop.Update()
+        subDivisionFilter = vtk.vtkLoopSubdivisionFilter()
+        subDivisionFilter.SetNumberOfSubdivisions(3)
+        subDivisionFilter.SetInputConnection(cleanPolyData.GetOutputPort())
+        subDivisionFilter.Update()
 
-        self.createNewModelNode(smooth_loop.GetOutput(), "Delaunay2D")
+        return self.createNewModelNode(subDivisionFilter.GetOutput(), "Delaunay2D")
+    
+    def mergeBreastAndBoundary(self, breastPolyData, boundaryPolyData):
+        normalFilter1 = vtk.vtkPolyDataNormals()
+        normalFilter1.SetInputData(boundaryPolyData)
+        normalFilter1.FlipNormalsOn()
+        normalFilter1.Update()
+
+        appendFilter = vtk.vtkAppendPolyData()
+        appendFilter.AddInputData(breastPolyData)
+        appendFilter.AddInputData(normalFilter1.GetOutput())
+        appendFilter.Update()
+
+        cleanFilter1 = vtk.vtkCleanPolyData()
+        cleanFilter1.SetInputConnection(appendFilter.GetOutputPort())
+        cleanFilter1.SetTolerance(0.0001)
+        cleanFilter1.Update()
+
+        holeFilter = vtk.vtkFillHolesFilter()
+        holeFilter.SetInputConnection(cleanFilter1.GetOutputPort())
+        holeFilter.Update()
+
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(holeFilter.GetOutputPort())
+        cleanFilter.ConvertLinesToPointsOn()
+        cleanFilter.ConvertPolysToLinesOn()
+        cleanFilter.ConvertStripsToPolysOn()
+        cleanFilter.Update()
+
+        normalFilter = vtk.vtkPolyDataNormals()
+        normalFilter.SetInputConnection(cleanFilter.GetOutputPort())
+        normalFilter.Update()
+
+        return self.createNewModelNode(normalFilter.GetOutput(), "MergedPolyData")
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
