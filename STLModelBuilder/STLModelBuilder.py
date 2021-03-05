@@ -401,27 +401,39 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         slicer.mrmlScene.RemoveNode(fiducialNode)
 
         for i in range(2):
+            #尋找最接近選取點的mesh
             connectFilter = vtk.vtkPolyDataConnectivityFilter()
             connectFilter.SetInputData(self.modifidedModelNode.GetPolyData())
             connectFilter.SetExtractionModeToClosestPointRegion()
             connectFilter.SetClosestPoint(breastPos[i])
             connectFilter.Update()
 
-            newNode = self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
-            newNode.SetAndObservePolyData(self.refineBreastPolyData(newNode, 10))
+            refinedBreastPolyData = self.refineBreastPolyData(connectFilter.GetOutput(), 10)
 
-            for j in range(3): #邊緣平滑次數
-                _, edgeIds = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_{}_Smooth_{}".format(i, j))
-                self.smoothBoundary(newNode, edgeIds)
+            nonEdgePolyData = refinedBreastPolyData
+            for j in range(3): #藉由直接移除n層boundary減少突出邊緣
+                _, edgeIds = self.extractBoundaryPoints(nonEdgePolyData, "Edge_{}_Smooth_{}".format(i, j))
+                nonEdgePolyData = self.deletePoint(nonEdgePolyData, edgeIds)
 
-            edgePolydata, _ = self.extractBoundaryPoints(newNode.GetPolyData(), "Edge_Final_{}".format(i))
+            rippedBreastPolyData = nonEdgePolyData
+            self.createNewModelNode(rippedBreastPolyData, "Ripped_BreastPolyData_{}".format(i))
 
-            newBoundary = self.createBoundaryMesh(edgePolydata)
-            self.mergeBreastAndBoundary(newNode.GetPolyData(), newBoundary.GetPolyData())
+            for j in range(5): #邊緣平滑次數
+                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData, "Edge_{}_Smooth_{}".format(i, j))
+                rippedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, edgeIds)
 
-    def refineBreastPolyData(self, modelNode, holeSize):
+            #取得平滑後的邊緣
+            edgePolydata, _ = self.extractBoundaryPoints(rippedBreastPolyData, "Edge_Final_{}".format(i))
+            boundaryMesh = self.createBoundaryMesh(edgePolydata)
+            self.createNewModelNode(boundaryMesh, "BoundaryMesh_{}".format(i))
+            smoothedBoundaryMesh = self.smoothBoundaryMesh(boundaryMesh)
+            self.createNewModelNode(smoothedBoundaryMesh, "BoundaryMesh_Smoothed_{}".format(i))
+
+            self.createNewModelNode(self.mergeBreastAndBoundary(rippedBreastPolyData, smoothedBoundaryMesh), "MergedPolyData")
+
+    def refineBreastPolyData(self, polyData, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
-        holeFiller.SetInputData(modelNode.GetPolyData())
+        holeFiller.SetInputData(polyData)
         holeFiller.SetHoleSize(holeSize)
         holeFiller.Update()
 
@@ -450,51 +462,34 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         edgeFilter.Update()
 
         if edgeName != "":
-            print("Name:{} - Edge Id List:".format(edgeName))
-            print(vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids")))
+            #print("Name:{} - Edge Id List:".format(edgeName))
+            #print(vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids")))
             self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
         return edgeFilter.GetOutput(), vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
     
-    def smoothBoundary(self, modelNode, edgeIds):
-        nonEdgePolyData = self.deletePoint(modelNode.GetPolyData(), edgeIds)
+    def smoothBoundary(self, polyData, edgeIds):
+        nonEdgePolyData = self.deletePoint(polyData, edgeIds)
 
-        roughSmoothFilter = vtk.vtkSmoothPolyDataFilter()
-        roughSmoothFilter.SetInputData(modelNode.GetPolyData())
-        roughSmoothFilter.SetNumberOfIterations(10)
-        roughSmoothFilter.BoundarySmoothingOn()
-        roughSmoothFilter.SetEdgeAngle(180)
-        roughSmoothFilter.SetRelaxationFactor(1)
-        roughSmoothFilter.SetSourceData(nonEdgePolyData)
-        roughSmoothFilter.Update()
-
-        fineSmoothFilter = vtk.vtkSmoothPolyDataFilter()
-        fineSmoothFilter.SetInputConnection(roughSmoothFilter.GetOutputPort())
-        fineSmoothFilter.SetNumberOfIterations(100)
-        fineSmoothFilter.BoundarySmoothingOn()
-        fineSmoothFilter.SetEdgeAngle(180)
-        fineSmoothFilter.SetRelaxationFactor(0.0001)
-        fineSmoothFilter.SetSourceData(nonEdgePolyData)
-        fineSmoothFilter.Update()
+        smoothFilter = vtk.vtkSmoothPolyDataFilter()
+        smoothFilter.SetInputData(polyData)
+        smoothFilter.SetNumberOfIterations(150)
+        smoothFilter.BoundarySmoothingOn()
+        smoothFilter.SetEdgeAngle(180)
+        smoothFilter.SetRelaxationFactor(0.5)
+        smoothFilter.SetSourceData(nonEdgePolyData)
+        smoothFilter.Update()
 
         cleanFilter = vtk.vtkCleanPolyData()
-        cleanFilter.SetInputConnection(fineSmoothFilter.GetOutputPort())
+        cleanFilter.SetInputConnection(smoothFilter.GetOutputPort())
         cleanFilter.ConvertLinesToPointsOn()
         cleanFilter.ConvertPolysToLinesOn()
         cleanFilter.ConvertStripsToPolysOn()
         cleanFilter.Update()
 
-        modelNode.SetAndObservePolyData(cleanFilter.GetOutput())
+        return cleanFilter.GetOutput()
     
     def createBoundaryMesh(self, polyData):
-        """
-        delaunayFilter = vtk.vtkDelaunay2D()
-        delaunayFilter.SetInputData(polyData)
-        delaunayFilter.SetTolerance(0.001)
-        #delaunayFilter.SetAlpha(0.2)
-        delaunayFilter.Update()
-        """
-
         contourFilter = vtk.vtkContourTriangulator()
         contourFilter.SetInputData(polyData)
         contourFilter.Update()
@@ -509,26 +504,40 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         subDivisionFilter.SetInputConnection(cleanPolyData.GetOutputPort())
         subDivisionFilter.Update()
 
-        return self.createNewModelNode(subDivisionFilter.GetOutput(), "Delaunay2D")
+        return subDivisionFilter.GetOutput()
+    
+    def smoothBoundaryMesh(self, polyData):
+        edgePolyData, _ = self.extractBoundaryPoints(polyData)
+
+        smoothFilter = vtk.vtkSmoothPolyDataFilter()
+        smoothFilter.SetInputData(polyData)
+        smoothFilter.SetNumberOfIterations(50)
+        smoothFilter.SetRelaxationFactor(0.005)
+        smoothFilter.SetSourceData(edgePolyData)
+        smoothFilter.Update()
+
+        return smoothFilter.GetOutput()
     
     def mergeBreastAndBoundary(self, breastPolyData, boundaryPolyData):
-        normalFilter1 = vtk.vtkPolyDataNormals()
-        normalFilter1.SetInputData(boundaryPolyData)
-        normalFilter1.FlipNormalsOn()
-        normalFilter1.Update()
+        normalFilter = vtk.vtkPolyDataNormals()
+        normalFilter.SetInputData(boundaryPolyData)
+        normalFilter.FlipNormalsOn()
+        normalFilter.Update()
 
         appendFilter = vtk.vtkAppendPolyData()
         appendFilter.AddInputData(breastPolyData)
-        appendFilter.AddInputData(normalFilter1.GetOutput())
+        appendFilter.AddInputData(normalFilter.GetOutput())
         appendFilter.Update()
 
-        cleanFilter1 = vtk.vtkCleanPolyData()
-        cleanFilter1.SetInputConnection(appendFilter.GetOutputPort())
-        cleanFilter1.SetTolerance(0.0001)
-        cleanFilter1.Update()
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(appendFilter.GetOutputPort())
+        cleanFilter.ConvertLinesToPointsOn()
+        cleanFilter.ConvertPolysToLinesOn()
+        cleanFilter.ConvertStripsToPolysOn()
+        cleanFilter.Update()
 
         holeFilter = vtk.vtkFillHolesFilter()
-        holeFilter.SetInputConnection(cleanFilter1.GetOutputPort())
+        holeFilter.SetInputConnection(cleanFilter.GetOutputPort())
         holeFilter.Update()
 
         cleanFilter = vtk.vtkCleanPolyData()
@@ -542,7 +551,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         normalFilter.SetInputConnection(cleanFilter.GetOutputPort())
         normalFilter.Update()
 
-        return self.createNewModelNode(normalFilter.GetOutput(), "MergedPolyData")
+        return normalFilter.GetOutput()
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
