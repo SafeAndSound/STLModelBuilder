@@ -410,26 +410,23 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
             refinedBreastPolyData = self.refineBreastPolyData(connectFilter.GetOutput(), 10)
 
-            nonEdgePolyData = refinedBreastPolyData
+            rippedBreastPolyData = refinedBreastPolyData
             for j in range(3): #藉由直接移除n層boundary減少突出邊緣
-                _, edgeIds = self.extractBoundaryPoints(nonEdgePolyData, "Edge_{}_Smooth_{}".format(i, j))
-                nonEdgePolyData = self.deletePoint(nonEdgePolyData, edgeIds)
+                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)#, "Edge_{}_Rip_{}".format(i, j))
+                rippedBreastPolyData = self.deletePoint(rippedBreastPolyData, edgeIds)
+            #self.createNewModelNode(rippedBreastPolyData, "Ripped_BreastPolyData_{}".format(i))
 
-            rippedBreastPolyData = nonEdgePolyData
-            self.createNewModelNode(rippedBreastPolyData, "Ripped_BreastPolyData_{}".format(i))
-
-            for j in range(5): #邊緣平滑次數
-                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData, "Edge_{}_Smooth_{}".format(i, j))
-                rippedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, edgeIds)
+            smoothedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, 2)
+            self.createNewModelNode(smoothedBreastPolyData, "Smoothed_BreastPolyData_{}".format(i))
 
             #取得平滑後的邊緣
-            edgePolydata, _ = self.extractBoundaryPoints(rippedBreastPolyData, "Edge_Final_{}".format(i))
+            edgePolydata, _ = self.extractBoundaryPoints(smoothedBreastPolyData)
             boundaryMesh = self.createBoundaryMesh(edgePolydata)
             self.createNewModelNode(boundaryMesh, "BoundaryMesh_{}".format(i))
             smoothedBoundaryMesh = self.smoothBoundaryMesh(boundaryMesh)
             self.createNewModelNode(smoothedBoundaryMesh, "BoundaryMesh_Smoothed_{}".format(i))
 
-            self.createNewModelNode(self.mergeBreastAndBoundary(rippedBreastPolyData, smoothedBoundaryMesh), "MergedPolyData")
+            self.createNewModelNode(self.mergeBreastAndBoundary(smoothedBreastPolyData, smoothedBoundaryMesh), "MergedPolyData")
 
     def refineBreastPolyData(self, polyData, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
@@ -462,21 +459,22 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         edgeFilter.Update()
 
         if edgeName != "":
-            #print("Name:{} - Edge Id List:".format(edgeName))
-            #print(vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids")))
             self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
         return edgeFilter.GetOutput(), vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
     
-    def smoothBoundary(self, polyData, edgeIds):
-        nonEdgePolyData = self.deletePoint(polyData, edgeIds)
+    def smoothBoundary(self, polyData, edgeWidth):
+        nonEdgePolyData = polyData
+        for _ in range(edgeWidth): #邊緣平滑次數
+            _, edgeIds = self.extractBoundaryPoints(nonEdgePolyData)
+            nonEdgePolyData = self.deletePoint(nonEdgePolyData, edgeIds)
 
         smoothFilter = vtk.vtkSmoothPolyDataFilter()
         smoothFilter.SetInputData(polyData)
-        smoothFilter.SetNumberOfIterations(150)
+        smoothFilter.SetNumberOfIterations(50)
         smoothFilter.BoundarySmoothingOn()
         smoothFilter.SetEdgeAngle(180)
-        smoothFilter.SetRelaxationFactor(0.5)
+        smoothFilter.SetRelaxationFactor(1)
         smoothFilter.SetSourceData(nonEdgePolyData)
         smoothFilter.Update()
 
@@ -507,13 +505,11 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         return subDivisionFilter.GetOutput()
     
     def smoothBoundaryMesh(self, polyData):
-        edgePolyData, _ = self.extractBoundaryPoints(polyData)
-
         smoothFilter = vtk.vtkSmoothPolyDataFilter()
         smoothFilter.SetInputData(polyData)
-        smoothFilter.SetNumberOfIterations(50)
-        smoothFilter.SetRelaxationFactor(0.005)
-        smoothFilter.SetSourceData(edgePolyData)
+        smoothFilter.SetNumberOfIterations(300)
+        smoothFilter.SetRelaxationFactor(0.5)
+        smoothFilter.BoundarySmoothingOff()
         smoothFilter.Update()
 
         return smoothFilter.GetOutput()
