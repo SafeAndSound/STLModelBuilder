@@ -15,6 +15,7 @@ import slicer
 import vtk
 from slicer.ScriptedLoadableModule import *
 from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
+from vtk.util import numpy_support
 
 #
 # STLModelBuilder
@@ -379,6 +380,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         slicer.modules.markups.logic().StartPlaceMode(placeModePersistence)
 
     def truncateBreastPolyData(self, nodeName):
+        print("nodename ",nodeName)
         interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
         interactionNode.SwitchToViewTransformMode()
         # also turn off place mode persistence if required
@@ -408,7 +410,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             connectFilter.SetClosestPoint(breastPos[i])
             connectFilter.Update()
 
-            refinedBreastPolyData = self.refineBreastPolyData(connectFilter.GetOutput(), 10)
+            rawBreastPolyData = connectFilter.GetOutput()
+            self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
+            refinedBreastPolyData = self.refineBreastPolyData(rawBreastPolyData, 10)
 
             rippedBreastPolyData = refinedBreastPolyData
             for j in range(3): #藉由直接移除n層boundary減少突出邊緣
@@ -421,12 +425,64 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
             #取得平滑後的邊緣
             edgePolydata, _ = self.extractBoundaryPoints(smoothedBreastPolyData)
+
+#########################################################奕萱#########################################################
+            print("ori_area ", self.calculateArea(rawBreastPolyData))
+
+            #slicer.util.saveNode(newNode, 'C:/Users/sandy/OneDrive/桌面/計畫/present/STLModelBuilder-main/STLModelBuilder/test_{}.vtk'.format(i))
             boundaryMesh = self.createBoundaryMesh(edgePolydata)
             self.createNewModelNode(boundaryMesh, "BoundaryMesh_{}".format(i))
-            smoothedBoundaryMesh = self.smoothBoundaryMesh(boundaryMesh)
-            self.createNewModelNode(smoothedBoundaryMesh, "BoundaryMesh_Smoothed_{}".format(i))
+#########################################################奕萱#########################################################
 
             self.createNewModelNode(self.mergeBreastAndBoundary(smoothedBreastPolyData, smoothedBoundaryMesh), "MergedPolyData")
+
+    def Test(self, modelNode): #補洞
+        convexHull = vtk.vtkDelaunay3D()
+        convexHull.SetInputData(modelNode.GetPolyData())
+        outerSurface = vtk.vtkGeometryFilter()
+        outerSurface.SetInputConnection(convexHull.GetOutputPort())
+        outerSurface.Update()
+        modelNode.SetAndObservePolyData(outerSurface.GetOutput())
+
+    def calculateArea(self, polyData):
+        Point_cordinates = polyData.GetPoints().GetData()
+        numpy_coordinates = numpy_support.vtk_to_numpy(Point_cordinates)
+        print(numpy_coordinates.shape)
+
+        vertexes = [polyData.GetPoint(i) for i in range(polyData.GetNumberOfPoints())]
+        pdata = polyData.GetPolys().GetData()
+        values = [int(pdata.GetTuple1(i)) for i in range(pdata.GetNumberOfTuples())]
+        triangles = []
+        while values:
+            n = values[0]  # number of points in the polygon
+            triangles.append(values[1:n + 1])
+            del values[0:n + 1]
+
+        area = 0.0
+        for j in range(20):
+            k = random.randint(0, len(triangles))
+            # 點a
+            ax = numpy_coordinates[triangles[k][0]][0]
+            ay = numpy_coordinates[triangles[k][0]][1]
+            az = numpy_coordinates[triangles[k][0]][2]
+            # 點b
+            bx = numpy_coordinates[triangles[k][1]][0]
+            by = numpy_coordinates[triangles[k][1]][1]
+            bz = numpy_coordinates[triangles[k][1]][2]
+            # 點c
+            cx = numpy_coordinates[triangles[k][2]][0]
+            cy = numpy_coordinates[triangles[k][2]][1]
+            cz = numpy_coordinates[triangles[k][2]][2]
+            x = np.sqrt(np.square(bx - ax) + np.square(by - ay) + np.square(bz - az))
+            y = np.sqrt(np.square(cx - ax) + np.square(cy - ay) + np.square(cz - az))
+            z = np.sqrt(np.square(bx - cx) + np.square(by - cy) + np.square(bz - cz))
+            s = float(x + y + z) / 2
+            tmp = np.sqrt(s * (s - x) * (s - y) * (s - z))
+            print("tmp=", tmp)
+            area += tmp
+        area = float(area)/20
+
+        return area
 
     def refineBreastPolyData(self, polyData, holeSize):
         holeFiller = vtk.vtkFillHolesFilter()
@@ -488,32 +544,115 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         return cleanFilter.GetOutput()
     
     def createBoundaryMesh(self, polyData):
-        contourFilter = vtk.vtkContourTriangulator()
-        contourFilter.SetInputData(polyData)
-        contourFilter.Update()
 
+        Point_cordinates = polyData.GetPoints().GetData()
+        numpy_coordinates = numpy_support.vtk_to_numpy(Point_cordinates)
+        print('size=', numpy_coordinates.shape, numpy_coordinates.size)
+        # print(numpy_coordinates)
+
+        length = int(numpy_coordinates.shape[0])
+        minx = numpy_coordinates[0][0]
+        maxx = numpy_coordinates[0][0]
+        minz = numpy_coordinates[0][2]
+        maxz = numpy_coordinates[0][2]
+        miny = numpy_coordinates[0][1]
+        maxy = numpy_coordinates[0][1]
+
+        for i in range(1, length):
+            if numpy_coordinates[i][0] < minx:
+                minx = numpy_coordinates[i][0]
+            if numpy_coordinates[i][0] > maxx:
+                maxx = numpy_coordinates[i][0]
+            if numpy_coordinates[i][1] < miny:
+                miny = numpy_coordinates[i][1]
+            if numpy_coordinates[i][1] > maxy:
+                maxy = numpy_coordinates[i][1]
+            if numpy_coordinates[i][2] < minz:
+                minz = numpy_coordinates[i][2]
+            if numpy_coordinates[i][2] > maxz:
+                maxz = numpy_coordinates[i][2]
+
+        avgx = float((minx + maxx) / 2)
+        avgy = float((miny + maxy) / 2)
+        # avgz = np.median(tmp_list)
+        avgz = float((minz + maxz) / 2)
+        #print("avg=", avgx, avgy, avgz, minx, maxx, miny, maxy)
+
+        test = polyData.GetPoints()
+        test.InsertPoint(numpy_coordinates.shape[0], avgx, avgy, avgz)
+
+        '''
+        ra = float(maxx+minx)/2
+        rb = float(maxy+miny)/2
+        rc = float(maxz+minz)/2
+        print("ra=", ra, ",rb=", rb, ",rc=", rc)
+        k = 1
+        while k < 101:
+            x = random.uniform(-ra, ra)
+            y = random.uniform(-rb, rb)
+            #x,y座標=(avgx+x,avgy+y)
+            z = random.uniform(avgz,maxz)
+            z2 = (1-np.square(x)/float(np.square(ra))-np.square(y)/float(np.square(rb)))*np.square(rc)
+            z = np.sqrt(z2)+avgz
+            test.InsertPoint(numpy_coordinates.shape[0] + k, avgx+x, avgy+y, z)
+            k += 1
+        '''
+
+        #橢圓
+        for i in range(1, 80001):
+            k = int(random.uniform(0, length))
+            lenx = numpy_coordinates[k][0] - avgx
+            leny = numpy_coordinates[k][1] - avgy
+            lenz = numpy_coordinates[k][2] - avgz
+            rx = random.uniform(0, lenx*0.6)
+            ry = random.uniform(0, leny*0.6)
+            rz = random.uniform(0, lenz*0.6)
+            x = avgx + rx / float(lenx)
+            y = avgy + ry / float(leny)
+            z = avgz + rz / float(lenz)
+            test.InsertPoint(numpy_coordinates.shape[0]+i, x, y, z)
+            #for j in range(1, 21):
+            #    test.InsertPoint(numpy_coordinates.shape[0] + 20 * i + j, avgx + j * x, avgy + j * y, avgz + j * z)
+                # new_point.append([avgx+j*x, avgy+j*y, avgz+j*z])
+            #i += 50
+
+
+        polyData.SetPoints(test)
+
+        delaunayFilter = vtk.vtkDelaunay2D()
+        delaunayFilter.SetInputData(polyData)
+        delaunayFilter.SetTolerance(0.001)
+        #delaunayFilter.SetAlpha(0.2)
+        delaunayFilter.Update()
+
+        o = delaunayFilter.GetOutput()
         cleanPolyData = vtk.vtkCleanPolyData()
-        cleanPolyData.SetInputConnection(contourFilter.GetOutputPort())
-        cleanPolyData.SetTolerance(0.0001)
-        cleanPolyData.Update()
+        cleanPolyData.SetInputData(o)
 
-        subDivisionFilter = vtk.vtkLoopSubdivisionFilter()
-        subDivisionFilter.SetNumberOfSubdivisions(3)
-        subDivisionFilter.SetInputConnection(cleanPolyData.GetOutputPort())
-        subDivisionFilter.Update()
+        smooth_loop = vtk.vtkLoopSubdivisionFilter()
+        smooth_loop.SetNumberOfSubdivisions(3)
+        smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
+        smooth_loop.Update()
 
-        return subDivisionFilter.GetOutput()
-    
-    def smoothBoundaryMesh(self, polyData):
-        smoothFilter = vtk.vtkSmoothPolyDataFilter()
-        smoothFilter.SetInputData(polyData)
-        smoothFilter.SetNumberOfIterations(300)
-        smoothFilter.SetRelaxationFactor(0.5)
-        smoothFilter.BoundarySmoothingOff()
-        smoothFilter.Update()
+        '''
+        o2 = smooth_loop.GetOutput()
+        cleanPolyData2 = vtk.vtkCleanPolyData()
+        cleanPolyData2.SetInputData(o2)
 
-        return smoothFilter.GetOutput()
-    
+        smooth_loop2 = vtk.vtkLoopSubdivisionFilter()
+        smooth_loop2.SetNumberOfSubdivisions(3)
+        smooth_loop2.SetInputConnection(cleanPolyData2.GetOutputPort())
+        smooth_loop2.Update()
+        '''
+        #result = smooth_loop2.GetOutput()
+        resultPolyData = smooth_loop.GetOutput()
+
+        print("myarea ", self.calculateArea(resultPolyData))
+
+        self.createNewModelNode(resultPolyData, "Delaunay2D")
+        
+        return resultPolyData
+
     def mergeBreastAndBoundary(self, breastPolyData, boundaryPolyData):
         normalFilter = vtk.vtkPolyDataNormals()
         normalFilter.SetInputData(boundaryPolyData)
