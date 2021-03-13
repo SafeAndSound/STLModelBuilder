@@ -434,7 +434,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             self.createNewModelNode(boundaryMesh, "BoundaryMesh_{}".format(i))
 #########################################################奕萱#########################################################
 
-            self.createNewModelNode(self.mergeBreastAndBoundary(smoothedBreastPolyData, smoothedBoundaryMesh), "MergedPolyData")
+            self.createNewModelNode(self.mergeBreastAndBoundary(smoothedBreastPolyData, boundaryMesh), "MergedPolyData")
 
     def Test(self, modelNode): #補洞
         convexHull = vtk.vtkDelaunay3D()
