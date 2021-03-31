@@ -82,26 +82,30 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.inputModelSelector.noneEnabled = False
         self.inputModelSelector.showHidden = False
         self.inputModelSelector.showChildNodeTypes = False
-        self.inputModelSelector.setMRMLScene( slicer.mrmlScene )
-        self.inputModelSelector.setToolTip( "Model node containing geometry and texture coordinates." )
-        parametersFormLayout.addRow("Input OBJ Model: ", self.inputModelSelector)
+        self.inputModelSelector.setMRMLScene(slicer.mrmlScene)
+        self.inputModelSelector.setToolTip(
+            "Model node containing geometry and texture coordinates.")
+        parametersFormLayout.addRow(
+            "Input OBJ Model: ", self.inputModelSelector)
 
-        #input texture selector
+        # input texture selector
         self.inputTextureSelector = slicer.qMRMLNodeComboBox()
-        self.inputTextureSelector.nodeTypes = [ "vtkMRMLVectorVolumeNode" ]
+        self.inputTextureSelector.nodeTypes = ["vtkMRMLVectorVolumeNode"]
         self.inputTextureSelector.addEnabled = False
         self.inputTextureSelector.removeEnabled = False
         self.inputTextureSelector.noneEnabled = False
         self.inputTextureSelector.showHidden = False
         self.inputTextureSelector.showChildNodeTypes = False
-        self.inputTextureSelector.setMRMLScene( slicer.mrmlScene )
-        self.inputTextureSelector.setToolTip( "Color image containing texture image." )
+        self.inputTextureSelector.setMRMLScene(slicer.mrmlScene)
+        self.inputTextureSelector.setToolTip(
+            "Color image containing texture image.")
         parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
 
         # inpute color selector
         self.targetColor = qt.QColor("#4573a0")
         self.colorButton = qt.QPushButton()
-        self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
+        self.colorButton.setStyleSheet(
+            "background-color: " + self.targetColor.name())
         parametersFormLayout.addRow("Marker Color:", self.colorButton)
 
         # Texture Button
@@ -127,8 +131,10 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.textureButton.connect('clicked(bool)', self.onTextureButton)
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
         self.breatButton.connect('clicked(bool)', self.onBreatButton)
-        self.inputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
-        self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
+        self.inputModelSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
+        self.inputTextureSelector.connect(
+            "currentNodeChanged(vtkMRMLNode*)", self.onSelectInputData)
 
         self.onSelectInputData()
 
@@ -142,19 +148,24 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         pass
 
     def onSelectInputData(self):
-        self.textureButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
-        self.applyButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
+        self.textureButton.enabled = self.inputTextureSelector.currentNode(
+        ) and self.inputModelSelector.currentNode()
+        self.applyButton.enabled = self.inputTextureSelector.currentNode(
+        ) and self.inputModelSelector.currentNode()
 
     def onSelectColor(self):
         self.targetColor = qt.QColorDialog.getColor()
-        self.colorButton.setStyleSheet("background-color: " + self.targetColor.name())
+        self.colorButton.setStyleSheet(
+            "background-color: " + self.targetColor.name())
         self.colorButton.update()
-    
+
     def onTextureButton(self):
-        self.logic.showTextureOnModel(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
+        self.logic.showTextureOnModel(
+            self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
 
     def onApplyButton(self):
-        self.logic.run(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
+        self.logic.run(self.inputModelSelector.currentNode(),
+                       self.inputTextureSelector.currentNode(), self.targetColor)
 
     def onBreatButton(self):
         self.logic.truncateBreastPolyData("Reference_Breast_Position")
@@ -162,9 +173,10 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
     def finishPreProcessing(self):
         self.breatButton.enabled = True
         self.logic.setupFiducialNodeOperation("Reference_Breast_Position")
-        
+
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
+
 
 class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
@@ -179,26 +191,30 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     def initiate(self, widget):
         self.widget = widget
         self.modifidedModelNode = None
-    
+
     def showTextureOnModel(self, modelNode, textureImageNode):
         modelDisplayNode = modelNode.GetDisplayNode()
         modelDisplayNode.SetBackfaceCulling(0)
         textureImageFlipVert = vtk.vtkImageFlip()
         textureImageFlipVert.SetFilteredAxis(1)
-        textureImageFlipVert.SetInputConnection(textureImageNode.GetImageDataConnection())
-        modelDisplayNode.SetTextureImageDataConnection(textureImageFlipVert.GetOutputPort())
-    
+        textureImageFlipVert.SetInputConnection(
+            textureImageNode.GetImageDataConnection())
+        modelDisplayNode.SetTextureImageDataConnection(
+            textureImageFlipVert.GetOutputPort())
+
     def convertTextureToPointAttribute(self, modelNode, textureImageNode):
         polyData = modelNode.GetPolyData()
         textureImageFlipVert = vtk.vtkImageFlip()
         textureImageFlipVert.SetFilteredAxis(1)
-        textureImageFlipVert.SetInputConnection(textureImageNode.GetImageDataConnection())
+        textureImageFlipVert.SetInputConnection(
+            textureImageNode.GetImageDataConnection())
         textureImageFlipVert.Update()
         textureImageData = textureImageFlipVert.GetOutput()
         pointData = polyData.GetPointData()
         tcoords = pointData.GetTCoords()
         numOfPoints = pointData.GetNumberOfTuples()
-        assert numOfPoints == tcoords.GetNumberOfTuples(), "Number of texture coordinates does not equal number of points"
+        assert numOfPoints == tcoords.GetNumberOfTuples(
+        ), "Number of texture coordinates does not equal number of points"
         textureSamplingPointsUv = vtk.vtkPoints()
         textureSamplingPointsUv.SetNumberOfPoints(numOfPoints)
         for pointIndex in range(numOfPoints):
@@ -211,7 +227,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         textureImageDataSpacingOrigin = textureImageData.GetOrigin()
         textureImageDataSpacingDimensions = textureImageData.GetDimensions()
         uvToXyz.Scale(textureImageDataSpacingDimensions[0] / textureImageDataSpacingSpacing[0],
-                  textureImageDataSpacingDimensions[1] / textureImageDataSpacingSpacing[1], 1)
+                      textureImageDataSpacingDimensions[1] / textureImageDataSpacingSpacing[1], 1)
         uvToXyz.Translate(textureImageDataSpacingOrigin)
         textureSamplingPointDataUv.SetPoints(textureSamplingPointsUv)
         transformPolyDataToXyz = vtk.vtkTransformPolyDataFilter()
@@ -229,7 +245,8 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         colorArray.SetNumberOfTuples(numOfPoints)
         for pointIndex in range(numOfPoints):
             rgb = rgbPoints.GetTuple3(pointIndex)
-            colorArray.SetTuple3(pointIndex, rgb[0]/255., rgb[1]/255., rgb[2]/255.)
+            colorArray.SetTuple3(
+                pointIndex, rgb[0]/255., rgb[1]/255., rgb[2]/255.)
             colorArray.Modified()
             pointData.AddArray(colorArray)
 
@@ -242,38 +259,46 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         """
         print("----Start Processing----")
         startTime = time.time()
-        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
+        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S',
+                                             time.localtime(startTime)) + "\n")
 
         newPolyData = vtk.vtkPolyData()
         newPolyData.DeepCopy(modelNode.GetPolyData())
-        self.modifidedModelNode = self.createNewModelNode(newPolyData, "Modified_Model")
+        self.modifidedModelNode = self.createNewModelNode(
+            newPolyData, "Modified_Model")
         newModelNode = self.modifidedModelNode
 
-        #轉換顏色格式:QColor -> np.array
-        targetColor = np.array([targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
+        # 轉換顏色格式:QColor -> np.array
+        targetColor = np.array(
+            [targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
         print("Selected Color: {}".format(targetColor))
 
-        #取得vtkMRMLModelNode讀取的檔案
+        # 取得vtkMRMLModelNode讀取的檔案
         fileName = modelNode.GetStorageNode().GetFileName()
         print("OBJ File Path: {}\n".format(fileName))
 
-        print("Origin Model points: {}".format(self.modifidedModelNode.GetPolyData().GetNumberOfPoints()))
-        print("Origin Model cells: {}\n".format(self.modifidedModelNode.GetPolyData().GetNumberOfCells()))
+        print("Origin Model points: {}".format(
+            self.modifidedModelNode.GetPolyData().GetNumberOfPoints()))
+        print("Origin Model cells: {}\n".format(
+            self.modifidedModelNode.GetPolyData().GetNumberOfCells()))
 
-        #產生點的顏色資料
+        # 產生點的顏色資料
         self.convertTextureToPointAttribute(newModelNode, textureImageNode)
 
-        #取出顏色於範圍內的點id
+        # 取出顏色於範圍內的點id
         delPointIds = self.extractSelection(newModelNode, targetColor, 0.13)
 
-        #刪除顏色符合的點
-        newModelNode.SetAndObservePolyData(self.deletePoint(newModelNode.GetPolyData(), delPointIds))
+        # 刪除顏色符合的點
+        newModelNode.SetAndObservePolyData(
+            self.deletePoint(newModelNode.GetPolyData(), delPointIds))
 
-        #處理PolyData (降低面數、破洞處理......)
+        # 處理PolyData (降低面數、破洞處理......)
         self.reduceAndCleanPolyData(newModelNode)
 
-        print("Modified Model points: {}".format(newModelNode.GetPolyData().GetNumberOfPoints()))
-        print("Modified Model cells: {}\n".format(newModelNode.GetPolyData().GetNumberOfCells()))
+        print("Modified Model points: {}".format(
+            newModelNode.GetPolyData().GetNumberOfPoints()))
+        print("Modified Model cells: {}\n".format(
+            newModelNode.GetPolyData().GetNumberOfCells()))
 
         modelNode.GetDisplayNode().VisibilityOff()
         newModelNode.GetDisplayNode().VisibilityOn()
@@ -282,18 +307,20 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         print("\n----Complete Processing----")
         stopTime = time.time()
-        print("Complete time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
-        logging.info('Processing completed in {0:.2f} seconds\n'.format(stopTime - startTime))
+        print("Complete time: " +
+              time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
+        logging.info('Processing completed in {0:.2f} seconds\n'.format(
+            stopTime - startTime))
 
         return True
-    
+
     def reduceAndCleanPolyData(self, modelNode):
-        #triangulate
+        # triangulate
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputData(modelNode.GetPolyData())
         triangleFilter.Update()
 
-        #decimate
+        # decimate
         decimateFilter = vtk.vtkDecimatePro()
         decimateFilter.SetInputConnection(triangleFilter.GetOutputPort())
         decimateFilter.SetTargetReduction(0.33)
@@ -301,7 +328,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         decimateFilter.BoundaryVertexDeletionOff()
         decimateFilter.Update()
 
-        #clean
+        # clean
         cleanFilter = vtk.vtkCleanPolyData()
         cleanFilter.SetInputConnection(decimateFilter.GetOutputPort())
         cleanFilter.ConvertLinesToPointsOn()
@@ -309,7 +336,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         cleanFilter.ConvertStripsToPolysOn()
         cleanFilter.Update()
 
-        #relax
+        # relax
         relaxFilter = vtk.vtkWindowedSincPolyDataFilter()
         relaxFilter.SetInputConnection(cleanFilter.GetOutputPort())
         relaxFilter.SetNumberOfIterations(10)
@@ -321,24 +348,25 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         relaxFilter.NormalizeCoordinatesOn()
         relaxFilter.Update()
 
-        #normal
+        # normal
         normalFilter = vtk.vtkPolyDataNormals()
         normalFilter.SetInputConnection(relaxFilter.GetOutputPort())
         normalFilter.ComputePointNormalsOn()
         normalFilter.SplittingOff()
         normalFilter.Update()
 
-        #alignCenter
+        # alignCenter
         polyData = normalFilter.GetOutput()
         points_array = vtk_to_numpy(polyData.GetPoints().GetData())
-        center = points_array.sum(axis = 0) / points_array.shape[0]
+        center = points_array.sum(axis=0) / points_array.shape[0]
         np.copyto(points_array, points_array - center)
         polyData.GetPoints().GetData().Modified()
 
         modelNode.SetAndObservePolyData(polyData)
 
     def extractSelection(self, modelNode, targetColor, threshold):
-        colorData = vtk_to_numpy(modelNode.GetPolyData().GetPointData().GetArray("Color"))
+        colorData = vtk_to_numpy(
+            modelNode.GetPolyData().GetPointData().GetArray("Color"))
         colorData = np.sum(np.abs(colorData - targetColor), axis=1) / 3
 
         return np.asarray(np.where(colorData < threshold))[0]
@@ -373,15 +401,17 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         return modelNode
 
     def setupFiducialNodeOperation(self, nodeName):
-        #Create fiducial node
-        fiducialNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLMarkupsFiducialNode())
+        # Create fiducial node
+        fiducialNode = slicer.mrmlScene.AddNode(
+            slicer.vtkMRMLMarkupsFiducialNode())
         fiducialNode.SetName(nodeName)
 
         placeModePersistence = 1
         slicer.modules.markups.logic().StartPlaceMode(placeModePersistence)
 
     def truncateBreastPolyData(self, nodeName):
-        interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
+        interactionNode = slicer.mrmlScene.GetNodeByID(
+            "vtkMRMLInteractionNodeSingleton")
         interactionNode.SwitchToViewTransformMode()
         # also turn off place mode persistence if required
         interactionNode.SetPlaceModePersistence(0)
@@ -392,18 +422,18 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         breastPos = []
         # Use the last 2 fiducials as two breast positions
         for i in range(numFids - 2, numFids):
-            ras = [0,0,0]
+            ras = [0, 0, 0]
             fiducialNode.GetNthFiducialPosition(i, ras)
             breastPos.append(ras)
             # the world position is the RAS position with any transform matrices applied
-            world = [0,0,0,0]
+            world = [0, 0, 0, 0]
             fiducialNode.GetNthFiducialWorldCoordinates(i, world)
             #print(i, ": RAS =", ras, ", world =", world)
-        
+
         slicer.mrmlScene.RemoveNode(fiducialNode)
 
-        for i in range(2):
-            #尋找最接近選取點的mesh
+        for i in range(1):
+            # 尋找最接近選取點的mesh
             connectFilter = vtk.vtkPolyDataConnectivityFilter()
             connectFilter.SetInputData(self.modifidedModelNode.GetPolyData())
             connectFilter.SetExtractionModeToClosestPointRegion()
@@ -412,33 +442,35 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
             rawBreastPolyData = connectFilter.GetOutput()
             self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
-            refinedBreastPolyData = self.refineBreastPolyData(rawBreastPolyData, 10)
+            refinedBreastPolyData = self.refineBreastPolyData(rawBreastPolyData, 50)
 
             rippedBreastPolyData = refinedBreastPolyData
-            for j in range(3): #藉由直接移除n層boundary減少突出邊緣
-                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)#, "Edge_{}_Rip_{}".format(i, j))
-                rippedBreastPolyData = self.deletePoint(rippedBreastPolyData, edgeIds)
+            for j in range(3):  # 藉由直接移除n層boundary減少突出邊緣
+                # , "Edge_{}_Rip_{}".format(i, j))
+                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)
+                rippedBreastPolyData = self.deletePoint(
+                    rippedBreastPolyData, edgeIds)
             #self.createNewModelNode(rippedBreastPolyData, "Ripped_BreastPolyData_{}".format(i))
 
             smoothedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, 2)
-            #a = self.createNewModelNode(smoothedBreastPolyData.GetOutput(), "Delaunay2D")
-            #b = self.FillPolydataHole(a, 50)
-            self.createNewModelNode(smoothedBreastPolyData, "Smoothed_BreastPolyData_{}".format(i))
+            self.createNewModelNode(smoothedBreastPolyData, "Smoothed_Breast_{}".format(i))
 
-            #取得平滑後的邊緣
+            # 取得平滑後的邊緣
             edgePolydata, _ = self.extractBoundaryPoints(smoothedBreastPolyData)
+            self.createNewModelNode(edgePolydata, "Smoothed_Breast_Edge_{}".format(i))
 
 #########################################################奕萱#########################################################
-            print("ori_area ", self.calculateArea(rawBreastPolyData))
+            #print("ori_area ", self.calculateArea(rawBreastPolyData))
 
             #slicer.util.saveNode(newNode, 'C:/Users/sandy/OneDrive/桌面/計畫/present/STLModelBuilder-main/STLModelBuilder/test_{}.vtk'.format(i))
-            boundaryMesh = self.createBoundaryMesh(edgePolydata)
-            self.createNewModelNode(boundaryMesh, "BoundaryMesh_{}".format(i))
+            wallMesh = self.createWallMesh(edgePolydata)
+            self.createNewModelNode(wallMesh, "wallMesh_{}".format(i))
 #########################################################奕萱#########################################################
 
-            self.createNewModelNode(self.mergeBreastAndBoundary(smoothedBreastPolyData, boundaryMesh), "MergedPolyData")
+            self.createNewModelNode(self.mergeBreastAndBoundary(
+                smoothedBreastPolyData, wallMesh), "MergedPolyData")
 
-    def Test(self, modelNode): #補洞
+    def Test(self, modelNode):  # 補洞
         convexHull = vtk.vtkDelaunay3D()
         convexHull.SetInputData(modelNode.GetPolyData())
         outerSurface = vtk.vtkGeometryFilter()
@@ -451,9 +483,11 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         numpy_coordinates = numpy_support.vtk_to_numpy(Point_cordinates)
         print(numpy_coordinates.shape)
 
-        vertexes = [polyData.GetPoint(i) for i in range(polyData.GetNumberOfPoints())]
+        vertexes = [polyData.GetPoint(i)
+                    for i in range(polyData.GetNumberOfPoints())]
         pdata = polyData.GetPolys().GetData()
-        values = [int(pdata.GetTuple1(i)) for i in range(pdata.GetNumberOfTuples())]
+        values = [int(pdata.GetTuple1(i))
+                  for i in range(pdata.GetNumberOfTuples())]
         triangles = []
         while values:
             n = values[0]  # number of points in the polygon
@@ -475,9 +509,12 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             cx = numpy_coordinates[triangles[k][2]][0]
             cy = numpy_coordinates[triangles[k][2]][1]
             cz = numpy_coordinates[triangles[k][2]][2]
-            x = np.sqrt(np.square(bx - ax) + np.square(by - ay) + np.square(bz - az))
-            y = np.sqrt(np.square(cx - ax) + np.square(cy - ay) + np.square(cz - az))
-            z = np.sqrt(np.square(bx - cx) + np.square(by - cy) + np.square(bz - cz))
+            x = np.sqrt(np.square(bx - ax) +
+                        np.square(by - ay) + np.square(bz - az))
+            y = np.sqrt(np.square(cx - ax) +
+                        np.square(cy - ay) + np.square(cz - az))
+            z = np.sqrt(np.square(bx - cx) +
+                        np.square(by - cy) + np.square(bz - cz))
             s = float(x + y + z) / 2
             tmp = np.sqrt(s * (s - x) * (s - y) * (s - z))
             #print("tmp=", tmp)
@@ -500,14 +537,14 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         return normalFilter.GetOutput()
 
-    def extractBoundaryPoints(self, polyData, edgeName = ""):
+    def extractBoundaryPoints(self, polyData, edgeName=""):
         idFilter = vtk.vtkIdFilter()
         idFilter.SetInputData(polyData)
         idFilter.SetIdsArrayName("ids")
         idFilter.PointIdsOn()
         idFilter.CellIdsOff()
         idFilter.Update()
-        
+
         edgeFilter = vtk.vtkFeatureEdges()
         edgeFilter.SetInputConnection(idFilter.GetOutputPort())
         edgeFilter.BoundaryEdgesOn()
@@ -520,10 +557,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             self.createNewModelNode(edgeFilter.GetOutput(), edgeName)
 
         return edgeFilter.GetOutput(), vtk_to_numpy(edgeFilter.GetOutput().GetPointData().GetArray("ids"))
-    
+
     def smoothBoundary(self, polyData, edgeWidth):
         nonEdgePolyData = polyData
-        for _ in range(edgeWidth): #邊緣平滑次數
+        for _ in range(edgeWidth):  # 邊緣平滑次數
             _, edgeIds = self.extractBoundaryPoints(nonEdgePolyData)
             nonEdgePolyData = self.deletePoint(nonEdgePolyData, edgeIds)
 
@@ -544,102 +581,176 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         cleanFilter.Update()
 
         return cleanFilter.GetOutput()
-    
-    def createBoundaryMesh(self, polyData):
 
-        #bounds = polyData.GetBounds()
-        Point_cordinates = polyData.GetPoints().GetData()
-        numpy_coordinates = numpy_support.vtk_to_numpy(Point_cordinates)
+    def createWallMesh(self, edgePolyData):
+        bounds = edgePolyData.GetBounds()
+        Point_coordinates = edgePolyData.GetPoints().GetData()
+        numpy_coordinates = numpy_support.vtk_to_numpy(Point_coordinates)
         print('size=', numpy_coordinates.shape, numpy_coordinates.size)
         # print(numpy_coordinates)
-        length = int(numpy_coordinates.shape[0])
-        '''
+        originPointCount = int(numpy_coordinates.shape[0])
+
         minx = bounds[0]
         maxx = bounds[1]
         miny = bounds[2]
         maxy = bounds[3]
         minz = bounds[4]
         maxz = bounds[5]
-        '''
-        minx = numpy_coordinates[0][0]
-        maxx = numpy_coordinates[0][0]
-        minz = numpy_coordinates[0][2]
-        maxz = numpy_coordinates[0][2]
-        miny = numpy_coordinates[0][1]
-        maxy = numpy_coordinates[0][1]
-
-        for i in range(1, length):
-            if numpy_coordinates[i][0] < minx:
-                minx = numpy_coordinates[i][0]
-            if numpy_coordinates[i][0] > maxx:
-                maxx = numpy_coordinates[i][0]
-            if numpy_coordinates[i][1] < miny:
-                miny = numpy_coordinates[i][1]
-            if numpy_coordinates[i][1] > maxy:
-                maxy = numpy_coordinates[i][1]
-            if numpy_coordinates[i][2] < minz:
-                minz = numpy_coordinates[i][2]
-            if numpy_coordinates[i][2] > maxz:
-                maxz = numpy_coordinates[i][2]
 
         avgx = float((minx + maxx) / 2)
         avgy = float((miny + maxy) / 2)
         # avgz = np.median(tmp_list)
         avgz = float((minz + maxz) / 2)
 
-        polyPoints = vtk.vtkPoints()
-        polyPoints.DeepCopy(polyData.GetPoints())
-        polyPoints.InsertPoint(numpy_coordinates.shape[0], avgx, avgy, avgz)
-
-        t = 20
-
-        for i in range(length):
-            vecx = numpy_coordinates[i][0] - avgx
-            vecy = numpy_coordinates[i][1] - avgy
-            vecz = numpy_coordinates[i][2] - avgz
-            x = float(vecx / (t+1))
-            y = float(vecy / (t+1))
-            z = float(vecz / (t+1))
-            # test.InsertPoint(numpy_coordinates.shape[0]+1+i, avgx+x, avgy+y, avgz+z)
+        """
+        t = 40
+        vecx = [0.0, 0.0, 0.0]
+        vecy = [0.0, 0.0, 0.0]
+        vecz = [0.0, 0.0, 0.0]
+        x = [0.0, 0.0, 0.0]
+        y = [0.0, 0.0, 0.0]
+        z = [0.0, 0.0, 0.0]
+        for i in range(length-2):
+            for k in range(3):
+                vecx[k] = numpy_coordinates[i+k][0] - avgx
+                vecy[k] = numpy_coordinates[i+k][1] - avgy
+                vecz[k] = numpy_coordinates[i+k][2] - avgz
+                x[k] = float(vecx[k] / (t+1))
+                y[k] = float(vecy[k] / (t+1))
+                z[k] = float(vecz[k] / (t+1))
             for j in range(1, (t+1)):
-                polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x, avgy + j * y, avgz + j * z)
-                # new_point.append([avgx+j*x, avgy+j*y, avgz+j*z])
-            #i += 50
-        
+                if j % 2 == 1:
+                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[0], avgy + j * y[0], avgz + j * z[0])
+                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[2], avgy + j * y[2], avgz + j * z[2])
+                else:
+                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[1], avgy + j * y[1], avgz + j * z[1])
+            i += 3
+        """
+
+        polyPoints = vtk.vtkPoints()
+        polyPoints.DeepCopy(edgePolyData.GetPoints())
+        #polyPoints.InsertPoint(originPointCount, avgx, avgy, avgz)
+
+######################################
         pldt = vtk.vtkPolyData()
+
+        t = 500
+        polyPoints = vtk.vtkPoints()
+        polyPoints.DeepCopy(edgePolyData.GetPoints())
+        points = list(range(originPointCount))
+        appear = []
+        for i in range(t):
+            while True:
+                random.shuffle(points)
+                avgp = (numpy_coordinates[points[0]] + numpy_coordinates[points[1]] + numpy_coordinates[points[2]]) / 3
+                h = hash(str(avgp))
+                if h not in appear:
+                    edgePolyData.GetPoints().InsertPoint(originPointCount + i, avgp)
+                    appear.append(h)
+                    break
+
         pldt.SetPoints(polyPoints)
+######################################
+
+        edgePolyData.GetLines().InitTraversal()
+        pointIdLink = [-1] * edgePolyData.GetNumberOfLines()
+        idList = vtk.vtkIdList()
+        while edgePolyData.GetLines().GetNextCell(idList):
+            if pointIdLink[idList.GetId(0)] != -1:
+                print("line from id {} already assign!".format(idList.GetId(0)))
+            else:
+                pointIdLink[idList.GetId(0)] = idList.GetId(1)
+
+        constrain = vtk.vtkPolyData()
+        constrain.SetPoints(edgePolyData.GetPoints())
+
+        # Create a cell for the boundary poly
+        boundary_poly = vtk.vtkPolygon()
+        boundary_cell_array = vtk.vtkCellArray()
+        idPointer = 0
+        while pointIdLink[idPointer] != 0 and pointIdLink[idPointer] != -1:
+            boundary_poly.GetPointIds().InsertNextId(idPointer)
+            idPointer = pointIdLink[idPointer]
+        # connect back to beginning
+        boundary_poly.GetPointIds().InsertNextId(0)
+        boundary_cell_array.InsertNextCell(boundary_poly)
+        constrain.SetPolys(boundary_cell_array)
 
         delaunayFilter = vtk.vtkDelaunay2D()
         delaunayFilter.SetInputData(pldt)
-        delaunayFilter.SetTolerance(0.001)
-        #delaunayFilter.ComputeBestFittingPlane(polyData)
-        #delaunayFilter.SetProjectionPlaneMode(1)
-        #delaunayFilter.SetAlpha(0.2)
+        #delaunayFilter.SetSourceData(pldt)
+        delaunayFilter.SetProjectionPlaneMode(vtk.VTK_BEST_FITTING_PLANE)
         delaunayFilter.Update()
 
         cleanPolyData = vtk.vtkCleanPolyData()
         cleanPolyData.SetInputConnection(delaunayFilter.GetOutputPort())
+        cleanPolyData.Update()
 
         smooth_loop = vtk.vtkLoopSubdivisionFilter()
-        smooth_loop.SetNumberOfSubdivisions(3)
+        smooth_loop.SetNumberOfSubdivisions(4)
         smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
         smooth_loop.Update()
         resultPolyData = smooth_loop.GetOutput()
 
-        #print("myarea ", self.calculateArea(resultPolyData))
-
-        self.createNewModelNode(delaunayFilter.GetOutput(), "Delaunay2D")
+        #print("resultarea ", self.calculateArea(resultPolyData))
+        #print("myarea ", self.calculateArea(delaunayFilter.GetOutput()))
+        #self.createNewModelNode(delaunayFilter.GetOutput(), "Delaunay2D")
         return resultPolyData
 
-    def mergeBreastAndBoundary(self, breastPolyData, boundaryPolyData):
-        normalFilter = vtk.vtkPolyDataNormals()
-        normalFilter.SetInputData(boundaryPolyData)
-        normalFilter.FlipNormalsOn()
-        normalFilter.Update()
+    def mergeBreastAndBoundary(self, breastPolyData, wallPolyData):
+        # 先移除最外圍的點 避免與胸部data重疊
+        _, edgeIds = self.extractBoundaryPoints(wallPolyData)
+        rippedWallPolyData = self.deletePoint(wallPolyData, edgeIds)
+        rippedWallEdge, _ = self.extractBoundaryPoints(rippedWallPolyData)
+        wallStrips = vtk.vtkStripper()
+        wallStrips.SetInputData(rippedWallEdge)
+        wallStrips.Update()
+        edge1 = wallStrips.GetOutput()
 
+        breastEdge, _ = self.extractBoundaryPoints(breastPolyData)
+        boundaryStrips = vtk.vtkStripper()
+        boundaryStrips.SetInputData(breastEdge)
+        boundaryStrips.Update()
+        edge2 = boundaryStrips.GetOutput()
+
+        stitcer = PolyDataStitcher()
+        stitchPolyData = stitcer.stitch(edge1, edge2)
+        self.createNewModelNode(stitchPolyData, "Stitch")
+
+        #先將胸壁與縫合面合併
+        appendFilter = vtk.vtkAppendPolyData()
+        appendFilter.AddInputData(rippedWallPolyData)
+        appendFilter.AddInputData(stitchPolyData)
+        appendFilter.Update()
+
+        normalFilter = vtk.vtkPolyDataNormals()
+        normalFilter.SetInputConnection(appendFilter.GetOutputPort())
+        normalFilter.Update()
+        
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(normalFilter.GetOutputPort())
+        cleanFilter.ConvertLinesToPointsOn()
+        cleanFilter.ConvertPolysToLinesOn()
+        cleanFilter.ConvertStripsToPolysOn()
+        cleanFilter.Update()
+
+        holeFilter = vtk.vtkFillHolesFilter()
+        holeFilter.SetInputConnection(normalFilter.GetOutputPort())
+        holeFilter.Update()
+
+        smoothFilter = vtk.vtkSmoothPolyDataFilter()
+        smoothFilter.SetInputConnection(holeFilter.GetOutputPort())
+        smoothFilter.SetNumberOfIterations(200)
+        smoothFilter.BoundarySmoothingOff()
+        smoothFilter.SetEdgeAngle(0)
+        smoothFilter.Update()
+
+        self.createNewModelNode(smoothFilter.GetOutput(), "Stitch_Combine")
+
+        #再次合併胸壁和胸部
         appendFilter = vtk.vtkAppendPolyData()
         appendFilter.AddInputData(breastPolyData)
-        appendFilter.AddInputData(normalFilter.GetOutput())
+        appendFilter.AddInputData(smoothFilter.GetOutput())
         appendFilter.Update()
 
         cleanFilter = vtk.vtkCleanPolyData()
@@ -649,12 +760,24 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         cleanFilter.ConvertStripsToPolysOn()
         cleanFilter.Update()
 
+        connectFilter = vtk.vtkPolyDataConnectivityFilter()
+        connectFilter.SetInputConnection(cleanFilter.GetOutputPort())
+        connectFilter.SetExtractionModeToLargestRegion()
+        connectFilter.Update()
+
         holeFilter = vtk.vtkFillHolesFilter()
-        holeFilter.SetInputConnection(cleanFilter.GetOutputPort())
+        holeFilter.SetInputConnection(connectFilter.GetOutputPort())
         holeFilter.Update()
 
+        relaxFilter = vtk.vtkSmoothPolyDataFilter()
+        relaxFilter.SetInputConnection(holeFilter.GetOutputPort())
+        relaxFilter.FeatureEdgeSmoothingOn()
+        relaxFilter.SetEdgeAngle(50)
+        relaxFilter.SetNumberOfIterations(200)
+        relaxFilter.Update()
+
         cleanFilter = vtk.vtkCleanPolyData()
-        cleanFilter.SetInputConnection(holeFilter.GetOutputPort())
+        cleanFilter.SetInputConnection(relaxFilter.GetOutputPort())
         cleanFilter.ConvertLinesToPointsOn()
         cleanFilter.ConvertPolysToLinesOn()
         cleanFilter.ConvertStripsToPolysOn()
@@ -665,6 +788,133 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         normalFilter.Update()
 
         return normalFilter.GetOutput()
+
+
+class PolyDataStitcher():
+    def extract_points(self, source):
+        # Travers the cells and add points while keeping their order.
+        points = source.GetPoints()
+        cells = source.GetLines()
+        cells.InitTraversal()
+        idList = vtk.vtkIdList()
+        pointIds = []
+        while cells.GetNextCell(idList):
+            for i in range(0, idList.GetNumberOfIds()):
+                pId = idList.GetId(i)
+                # Only add the point id if the previously added point does not
+                # have the same id. Avoid p->p duplications which occur for example
+                # if a poly-line is traversed. However, other types of point
+                # duplication currently are not avoided: a->b->c->a->d
+                if len(pointIds) == 0 or pointIds[-1] != pId:
+                    pointIds.append(pId)
+        result = []
+        for i in pointIds:
+            result.append(points.GetPoint(i))
+        return result
+
+    def reverse_lines(self, source):
+        strip = vtk.vtkStripper()
+        strip.SetInputData(source)
+        strip.Update()
+        reversed = vtk.vtkReverseSense()
+        reversed.SetInputConnection(strip.GetOutputPort())
+        reversed.Update()
+        return reversed.GetOutput()
+
+    def find_closest_point(self, points, samplePoint):
+        points = np.asarray(points)
+        assert(len(points.shape) == 2 and points.shape[1] == 3)
+        nPoints = points.shape[0]
+        diff = np.array(points) - np.tile(samplePoint, [nPoints, 1])
+        pId = np.argmin(np.linalg.norm(diff, axis=1))
+        return pId
+
+    def stitch(self, edge1, edge2):
+        # Extract points along the edge line (in correct order).
+        # The following further assumes that the polyline has the
+        # same orientation (clockwise or counterclockwise).
+        #edge2 = self.reverse_lines(edge2)
+
+        points1 = self.extract_points(edge1)
+        points2 = self.extract_points(edge2)
+        n1 = len(points1)
+        n2 = len(points2)
+
+        # Prepare result containers.
+        # Variable points concatenates points1 and points2.
+        # Note: all indices refer to this targert container!
+        points = vtk.vtkPoints()
+        cells = vtk.vtkCellArray()
+        points.SetNumberOfPoints(n1+n2)
+        for i, p1 in enumerate(points1):
+            points.SetPoint(i, p1)
+        for i, p2 in enumerate(points2):
+            points.SetPoint(i+n1, p2)
+
+        # The following code stitches the curves edge1 with (points1) and
+        # edge2 (with points2) together based on a simple growing scheme.
+
+        # Pick a first stitch between points1[0] and its closest neighbor
+        # of points2.
+        i1Start = 0
+        i2Start = self.find_closest_point(points2, points1[i1Start])
+        i2Start += n1  # offset to reach the points2
+
+        # Initialize
+        i1 = i1Start
+        i2 = i2Start
+        p1 = np.asarray(points.GetPoint(i1))
+        p2 = np.asarray(points.GetPoint(i2))
+        mask = np.zeros(n1+n2, dtype=bool)
+        count = 0
+        while not np.all(mask):
+            count += 1
+            i1Candidate = (i1+1) % n1
+            i2Candidate = (i2+1-n1) % n2+n1
+            p1Candidate = np.asarray(points.GetPoint(i1Candidate))
+            p2Candidate = np.asarray(points.GetPoint(i2Candidate))
+            diffEdge12C = np.linalg.norm(p1-p2Candidate)
+            diffEdge21C = np.linalg.norm(p2-p1Candidate)
+
+            mask[i1] = True
+            mask[i2] = True
+            if diffEdge12C < diffEdge21C:
+                triangle = vtk.vtkTriangle()
+                triangle.GetPointIds().SetId(0, i1)
+                triangle.GetPointIds().SetId(1, i2)
+                triangle.GetPointIds().SetId(2, i2Candidate)
+                cells.InsertNextCell(triangle)
+                i2 = i2Candidate
+                p2 = p2Candidate
+            else:
+                triangle = vtk.vtkTriangle()
+                triangle.GetPointIds().SetId(0, i1)
+                triangle.GetPointIds().SetId(1, i2)
+                triangle.GetPointIds().SetId(2, i1Candidate)
+                cells.InsertNextCell(triangle)
+                i1 = i1Candidate
+                p1 = p1Candidate
+
+        # Add the last triangle.
+        i1Candidate = (i1+1) % n1
+        i2Candidate = (i2+1-n1) % n2+n1
+        if (i1Candidate <= i1Start) or (i2Candidate <= i2Start):
+            if i1Candidate <= i1Start:
+                iC = i1Candidate
+            else:
+                iC = i2Candidate
+            triangle = vtk.vtkTriangle()
+            triangle.GetPointIds().SetId(0, i1)
+            triangle.GetPointIds().SetId(1, i2)
+            triangle.GetPointIds().SetId(2, iC)
+            cells.InsertNextCell(triangle)
+
+        poly = vtk.vtkPolyData()
+        poly.SetPoints(points)
+        poly.SetPolys(cells)
+        poly.BuildLinks()
+
+        return poly
 
 class STLModelBuilderTest(ScriptedLoadableModuleTest):
     """
@@ -709,5 +959,5 @@ class STLModelBuilderTest(ScriptedLoadableModuleTest):
 
         volumeNode = slicer.util.getNode(pattern="FA")
         logic = STLModelBuilderLogic()
-        #self.assertIsNotNone(logic.hasImageData(volumeNode))
+        # self.assertIsNotNone(logic.hasImageData(volumeNode))
         self.delayDisplay('Test passed!')
