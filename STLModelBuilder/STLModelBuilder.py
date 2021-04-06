@@ -602,7 +602,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         # avgz = np.median(tmp_list)
         avgz = float((minz + maxz) / 2)
 
-        """
+
         t = 40
         vecx = [0.0, 0.0, 0.0]
         vecy = [0.0, 0.0, 0.0]
@@ -625,18 +625,14 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
                 else:
                     polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[1], avgy + j * y[1], avgz + j * z[1])
             i += 3
-        """
-
-        polyPoints = vtk.vtkPoints()
-        polyPoints.DeepCopy(edgePolyData.GetPoints())
+ 
         #polyPoints.InsertPoint(originPointCount, avgx, avgy, avgz)
 
-######################################
-        pldt = vtk.vtkPolyData()
-
-        t = 500
+        """
+        t = 50
         polyPoints = vtk.vtkPoints()
         polyPoints.DeepCopy(edgePolyData.GetPoints())
+
         points = list(range(originPointCount))
         appear = []
         for i in range(t):
@@ -645,40 +641,22 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
                 avgp = (numpy_coordinates[points[0]] + numpy_coordinates[points[1]] + numpy_coordinates[points[2]]) / 3
                 h = hash(str(avgp))
                 if h not in appear:
-                    edgePolyData.GetPoints().InsertPoint(originPointCount + i, avgp)
+                    polyPoints.InsertPoint(originPointCount + i, avgp)
                     appear.append(h)
                     break
+        """
 
-        pldt.SetPoints(polyPoints)
-######################################
-
-        edgePolyData.GetLines().InitTraversal()
-        pointIdLink = [-1] * edgePolyData.GetNumberOfLines()
-        idList = vtk.vtkIdList()
-        while edgePolyData.GetLines().GetNextCell(idList):
-            if pointIdLink[idList.GetId(0)] != -1:
-                print("line from id {} already assign!".format(idList.GetId(0)))
-            else:
-                pointIdLink[idList.GetId(0)] = idList.GetId(1)
+        originData = vtk.vtkPolyData()
+        originData.SetPoints(polyPoints)
 
         constrain = vtk.vtkPolyData()
-        constrain.SetPoints(edgePolyData.GetPoints())
-
-        # Create a cell for the boundary poly
-        boundary_poly = vtk.vtkPolygon()
-        boundary_cell_array = vtk.vtkCellArray()
-        idPointer = 0
-        while pointIdLink[idPointer] != 0 and pointIdLink[idPointer] != -1:
-            boundary_poly.GetPointIds().InsertNextId(idPointer)
-            idPointer = pointIdLink[idPointer]
-        # connect back to beginning
-        boundary_poly.GetPointIds().InsertNextId(0)
-        boundary_cell_array.InsertNextCell(boundary_poly)
-        constrain.SetPolys(boundary_cell_array)
+        constrain.SetPoints(polyPoints)
+        constrain.SetPolys(vtk.vtkCellArray())
 
         delaunayFilter = vtk.vtkDelaunay2D()
-        delaunayFilter.SetInputData(pldt)
-        #delaunayFilter.SetSourceData(pldt)
+        delaunayFilter.SetInputData(originData)
+        delaunayFilter.SetSourceData(constrain)
+        delaunayFilter.SetTolerance(0.001)
         delaunayFilter.SetProjectionPlaneMode(vtk.VTK_BEST_FITTING_PLANE)
         delaunayFilter.Update()
 
@@ -692,16 +670,13 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         smooth_loop.Update()
         resultPolyData = smooth_loop.GetOutput()
 
-        #print("resultarea ", self.calculateArea(resultPolyData))
-        #print("myarea ", self.calculateArea(delaunayFilter.GetOutput()))
-        #self.createNewModelNode(delaunayFilter.GetOutput(), "Delaunay2D")
-        return resultPolyData
+        return cleanPolyData.GetOutput()
 
     def mergeBreastAndBoundary(self, breastPolyData, wallPolyData):
         # 先移除最外圍的點 避免與胸部data重疊
         _, edgeIds = self.extractBoundaryPoints(wallPolyData)
         rippedWallPolyData = self.deletePoint(wallPolyData, edgeIds)
-        rippedWallEdge, _ = self.extractBoundaryPoints(rippedWallPolyData)
+        rippedWallEdge, _ = self.extractBoundaryPoints(wallPolyData)
         wallStrips = vtk.vtkStripper()
         wallStrips.SetInputData(rippedWallEdge)
         wallStrips.Update()
