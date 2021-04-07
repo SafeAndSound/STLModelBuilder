@@ -432,7 +432,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         slicer.mrmlScene.RemoveNode(fiducialNode)
 
-        for i in range(1):
+        for i in range(2):
             # 尋找最接近選取點的mesh
             connectFilter = vtk.vtkPolyDataConnectivityFilter()
             connectFilter.SetInputData(self.modifidedModelNode.GetPolyData())
@@ -445,8 +445,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             refinedBreastPolyData = self.refineBreastPolyData(rawBreastPolyData, 50)
 
             rippedBreastPolyData = refinedBreastPolyData
-            for j in range(3):  # 藉由直接移除n層boundary減少突出邊緣
-                # , "Edge_{}_Rip_{}".format(i, j))
+            for _ in range(3):  # 藉由直接移除n層boundary減少突出邊緣
                 _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)
                 rippedBreastPolyData = self.deletePoint(
                     rippedBreastPolyData, edgeIds)
@@ -458,14 +457,11 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             # 取得平滑後的邊緣
             edgePolydata, _ = self.extractBoundaryPoints(smoothedBreastPolyData)
             self.createNewModelNode(edgePolydata, "Smoothed_Breast_Edge_{}".format(i))
-
-#########################################################奕萱#########################################################
             #print("ori_area ", self.calculateArea(rawBreastPolyData))
 
             #slicer.util.saveNode(newNode, 'C:/Users/sandy/OneDrive/桌面/計畫/present/STLModelBuilder-main/STLModelBuilder/test_{}.vtk'.format(i))
             wallMesh = self.createWallMesh(edgePolydata)
             self.createNewModelNode(wallMesh, "wallMesh_{}".format(i))
-#########################################################奕萱#########################################################
 
             self.createNewModelNode(self.mergeBreastAndBoundary(
                 smoothedBreastPolyData, wallMesh), "MergedPolyData")
@@ -602,7 +598,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         # avgz = np.median(tmp_list)
         avgz = float((minz + maxz) / 2)
 
+        polyPoints = vtk.vtkPoints()
+        polyPoints.DeepCopy(edgePolyData.GetPoints())
 
+        """
         t = 40
         vecx = [0.0, 0.0, 0.0]
         vecy = [0.0, 0.0, 0.0]
@@ -610,7 +609,7 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         x = [0.0, 0.0, 0.0]
         y = [0.0, 0.0, 0.0]
         z = [0.0, 0.0, 0.0]
-        for i in range(length-2):
+        for i in range(originPointCount-2):
             for k in range(3):
                 vecx[k] = numpy_coordinates[i+k][0] - avgx
                 vecy[k] = numpy_coordinates[i+k][1] - avgy
@@ -627,9 +626,9 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
             i += 3
  
         #polyPoints.InsertPoint(originPointCount, avgx, avgy, avgz)
-
         """
-        t = 50
+        
+        t = 1000
         polyPoints = vtk.vtkPoints()
         polyPoints.DeepCopy(edgePolyData.GetPoints())
 
@@ -644,7 +643,6 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
                     polyPoints.InsertPoint(originPointCount + i, avgp)
                     appear.append(h)
                     break
-        """
 
         originData = vtk.vtkPolyData()
         originData.SetPoints(polyPoints)
@@ -656,27 +654,33 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         delaunayFilter = vtk.vtkDelaunay2D()
         delaunayFilter.SetInputData(originData)
         delaunayFilter.SetSourceData(constrain)
-        delaunayFilter.SetTolerance(0.001)
+        delaunayFilter.SetTolerance(0.01)
         delaunayFilter.SetProjectionPlaneMode(vtk.VTK_BEST_FITTING_PLANE)
         delaunayFilter.Update()
 
-        cleanPolyData = vtk.vtkCleanPolyData()
-        cleanPolyData.SetInputConnection(delaunayFilter.GetOutputPort())
-        cleanPolyData.Update()
+        cleanFilter = vtk.vtkCleanPolyData()
+        cleanFilter.SetInputConnection(delaunayFilter.GetOutputPort())
+        cleanFilter.Update()
 
-        smooth_loop = vtk.vtkLoopSubdivisionFilter()
-        smooth_loop.SetNumberOfSubdivisions(4)
-        smooth_loop.SetInputConnection(cleanPolyData.GetOutputPort())
-        smooth_loop.Update()
-        resultPolyData = smooth_loop.GetOutput()
+        smoothFilter = vtk.vtkSmoothPolyDataFilter()
+        smoothFilter.SetInputConnection(cleanFilter.GetOutputPort())
+        smoothFilter.SetNumberOfIterations(200)
+        smoothFilter.SetRelaxationFactor(0.05)
+        smoothFilter.BoundarySmoothingOff()
+        smoothFilter.Update()
 
-        return cleanPolyData.GetOutput()
+        subdivisionFilter = vtk.vtkLoopSubdivisionFilter()
+        subdivisionFilter.SetNumberOfSubdivisions(2)
+        subdivisionFilter.SetInputConnection(smoothFilter.GetOutputPort())
+        subdivisionFilter.Update()
+
+        return subdivisionFilter.GetOutput()
 
     def mergeBreastAndBoundary(self, breastPolyData, wallPolyData):
         # 先移除最外圍的點 避免與胸部data重疊
         _, edgeIds = self.extractBoundaryPoints(wallPolyData)
         rippedWallPolyData = self.deletePoint(wallPolyData, edgeIds)
-        rippedWallEdge, _ = self.extractBoundaryPoints(wallPolyData)
+        rippedWallEdge, _ = self.extractBoundaryPoints(rippedWallPolyData)
         wallStrips = vtk.vtkStripper()
         wallStrips.SetInputData(rippedWallEdge)
         wallStrips.Update()
@@ -710,22 +714,15 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         cleanFilter.Update()
 
         holeFilter = vtk.vtkFillHolesFilter()
-        holeFilter.SetInputConnection(normalFilter.GetOutputPort())
+        holeFilter.SetInputConnection(cleanFilter.GetOutputPort())
         holeFilter.Update()
 
-        smoothFilter = vtk.vtkSmoothPolyDataFilter()
-        smoothFilter.SetInputConnection(holeFilter.GetOutputPort())
-        smoothFilter.SetNumberOfIterations(200)
-        smoothFilter.BoundarySmoothingOff()
-        smoothFilter.SetEdgeAngle(0)
-        smoothFilter.Update()
-
-        self.createNewModelNode(smoothFilter.GetOutput(), "Stitch_Combine")
+        self.createNewModelNode(holeFilter.GetOutput(), "Stitch_Combine")
 
         #再次合併胸壁和胸部
         appendFilter = vtk.vtkAppendPolyData()
         appendFilter.AddInputData(breastPolyData)
-        appendFilter.AddInputData(smoothFilter.GetOutput())
+        appendFilter.AddInputData(holeFilter.GetOutput())
         appendFilter.Update()
 
         cleanFilter = vtk.vtkCleanPolyData()
@@ -744,15 +741,8 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         holeFilter.SetInputConnection(connectFilter.GetOutputPort())
         holeFilter.Update()
 
-        relaxFilter = vtk.vtkSmoothPolyDataFilter()
-        relaxFilter.SetInputConnection(holeFilter.GetOutputPort())
-        relaxFilter.FeatureEdgeSmoothingOn()
-        relaxFilter.SetEdgeAngle(50)
-        relaxFilter.SetNumberOfIterations(200)
-        relaxFilter.Update()
-
         cleanFilter = vtk.vtkCleanPolyData()
-        cleanFilter.SetInputConnection(relaxFilter.GetOutputPort())
+        cleanFilter.SetInputConnection(holeFilter.GetOutputPort())
         cleanFilter.ConvertLinesToPointsOn()
         cleanFilter.ConvertPolysToLinesOn()
         cleanFilter.ConvertStripsToPolysOn()
@@ -808,7 +798,7 @@ class PolyDataStitcher():
         # Extract points along the edge line (in correct order).
         # The following further assumes that the polyline has the
         # same orientation (clockwise or counterclockwise).
-        #edge2 = self.reverse_lines(edge2)
+        edge2 = self.reverse_lines(edge2)
 
         points1 = self.extract_points(edge1)
         points2 = self.extract_points(edge2)
