@@ -84,29 +84,29 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         parametersFormLayout = qt.QFormLayout(parametersCollapsibleButton)
 
         # input volume selector
-        self.OBJinputModelSelector = slicer.qMRMLNodeComboBox()
-        self.OBJinputModelSelector.nodeTypes = ["vtkMRMLModelNode"]
-        self.OBJinputModelSelector.selectNodeUponCreation = True
-        self.OBJinputModelSelector.addEnabled = False
-        self.OBJinputModelSelector.removeEnabled = False
-        self.OBJinputModelSelector.noneEnabled = False
-        self.OBJinputModelSelector.showHidden = False
-        self.OBJinputModelSelector.showChildNodeTypes = False
-        self.OBJinputModelSelector.setMRMLScene(slicer.mrmlScene)
-        self.OBJinputModelSelector.setToolTip("Model node containing geometry and texture coordinates.")
-        parametersFormLayout.addRow("Input OBJ Model: ", self.OBJinputModelSelector)
+        self.OBJModelSelector = slicer.qMRMLNodeComboBox()
+        self.OBJModelSelector.nodeTypes = ["vtkMRMLModelNode"]
+        self.OBJModelSelector.selectNodeUponCreation = True
+        self.OBJModelSelector.addEnabled = False
+        self.OBJModelSelector.removeEnabled = False
+        self.OBJModelSelector.noneEnabled = False
+        self.OBJModelSelector.showHidden = False
+        self.OBJModelSelector.showChildNodeTypes = False
+        self.OBJModelSelector.setMRMLScene(slicer.mrmlScene)
+        self.OBJModelSelector.setToolTip("Model node containing geometry and texture coordinates.")
+        parametersFormLayout.addRow("Input OBJ Model: ", self.OBJModelSelector)
 
         # input texture selector
-        self.inputTextureSelector = slicer.qMRMLNodeComboBox()
-        self.inputTextureSelector.nodeTypes = ["vtkMRMLVectorVolumeNode"]
-        self.inputTextureSelector.addEnabled = False
-        self.inputTextureSelector.removeEnabled = False
-        self.inputTextureSelector.noneEnabled = False
-        self.inputTextureSelector.showHidden = False
-        self.inputTextureSelector.showChildNodeTypes = False
-        self.inputTextureSelector.setMRMLScene(slicer.mrmlScene)
-        self.inputTextureSelector.setToolTip("Color image containing texture image.")
-        parametersFormLayout.addRow("Texture: ", self.inputTextureSelector)
+        self.OBJTextureSelector = slicer.qMRMLNodeComboBox()
+        self.OBJTextureSelector.nodeTypes = ["vtkMRMLVectorVolumeNode"]
+        self.OBJTextureSelector.addEnabled = False
+        self.OBJTextureSelector.removeEnabled = False
+        self.OBJTextureSelector.noneEnabled = False
+        self.OBJTextureSelector.showHidden = False
+        self.OBJTextureSelector.showChildNodeTypes = False
+        self.OBJTextureSelector.setMRMLScene(slicer.mrmlScene)
+        self.OBJTextureSelector.setToolTip("Color image containing texture image.")
+        parametersFormLayout.addRow("Texture: ", self.OBJTextureSelector)
 
         # inpute color selector
         self.colorButton = qt.QPushButton()
@@ -121,7 +121,7 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
 
         # Apply Button
         self.preprocessButton = qt.QPushButton("Remove Tape")
-        self.preprocessButton.toolTip = "Run the algorithm."
+        self.preprocessButton.toolTip = "Remove tapes from the model."
         self.preprocessButton.enabled = False
         parametersFormLayout.addRow(self.preprocessButton)
 
@@ -131,13 +131,22 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.breastButton.enabled = False
         parametersFormLayout.addRow(self.breastButton)
 
+        # Cleanup Breasts
+        self.OBJCleanupButton = qt.QPushButton("Cleanup Results and Restart")
+        self.OBJCleanupButton.toolTip = "Remove every created models"
+        self.OBJCleanupButton.enabled = True
+        parametersFormLayout.addRow(" ", None)
+        parametersFormLayout.addRow(" ", None)
+        parametersFormLayout.addRow(self.OBJCleanupButton)
+
         # connections
-        self.OBJinputModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectOBJInputData)
-        self.inputTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectOBJInputData)
+        self.OBJModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectOBJInputData)
+        self.OBJTextureSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectOBJInputData)
         self.colorButton.connect("clicked(bool)", self.onSelectColor)
         self.textureButton.connect("clicked(bool)", self.onTextureButton)
         self.preprocessButton.connect("clicked(bool)", self.onPreprocessButton)
         self.breastButton.connect("clicked(bool)", self.onBreastButton)
+        self.OBJCleanupButton.connect("clicked(bool)", self.onCleanupOBJButton)
 
         self.onSelectOBJInputData()
     
@@ -185,17 +194,29 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.STLApplyButton.enabled = False
         parametersFormLayout.addRow(self.STLApplyButton)
 
+        # Cleanup Breasts
+        self.STLCleanupButton = qt.QPushButton("Cleanup Results and Restart")
+        self.STLCleanupButton.toolTip = "Remove every created models"
+        self.STLCleanupButton.enabled = True
+        parametersFormLayout.addRow(" ", None)
+        parametersFormLayout.addRow(" ", None)
+        parametersFormLayout.addRow(self.STLCleanupButton)
+
         # connections
         self.STLLeftModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectSTLInputData)
         self.STLRightModelSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelectSTLInputData)
-        #self.STLApplyButton.connect("clicked(bool)", self.onApplyButton)
+        self.STLApplyButton.connect("clicked(bool)", self.onProcessSeperateBreast)
+        self.STLCleanupButton.connect("clicked(bool)", self.onCleanupSTLButton)
+
+        self.onSelectSTLInputData()
 
     def cleanup(self):
         pass
 
+    # OBJ Process Functions
     def onSelectOBJInputData(self):
-        self.textureButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
-        self.preprocessButton.enabled = self.inputTextureSelector.currentNode() and self.inputModelSelector.currentNode()
+        self.textureButton.enabled = self.OBJModelSelector.currentNode() and self.OBJTextureSelector.currentNode()
+        self.preprocessButton.enabled = self.OBJModelSelector.currentNode() and self.OBJTextureSelector.currentNode()
 
     def onSelectColor(self):
         self.targetColor = qt.QColorDialog.getColor()
@@ -203,20 +224,30 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
         self.colorButton.update()
 
     def onTextureButton(self):
-        self.OBJlogic.showTextureOnModel(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode())
+        self.OBJLogic.showTextureOnModel(self.OBJModelSelector.currentNode(), self.OBJTextureSelector.currentNode())
 
     def onPreprocessButton(self):
-        self.OBJlogic.startPreprocessing(self.inputModelSelector.currentNode(), self.inputTextureSelector.currentNode(), self.targetColor)
+        self.OBJLogic.startPreprocessing(self.OBJModelSelector.currentNode(), self.OBJTextureSelector.currentNode(), self.targetColor)
 
     def onBreastButton(self):
-        self.OBJlogic.truncateBreastPolyData("Reference_Breast_Position")
+        self.OBJLogic.truncateBreastPolyData()
 
     def finishPreProcessing(self):
         self.breastButton.enabled = True
-        self.logic.setupFiducialNodeOperation("Reference_Breast_Position")
+        self.OBJLogic.setupFiducialNodeOperation()
     
+    def onCleanupOBJButton(self):
+        self.OBJLogic.cleanup()
+    
+    # STL Process Functions
     def onSelectSTLInputData(self):
-        self.STLApplyButton.enabled = self.STLLeftModelSelector.currentNode() and self.STLRightModelSelector.currentNode()
+        self.STLApplyButton.enabled = self.STLLeftModelSelector.currentNode() and self.STLRightModelSelector.currentNode() and self.STLLeftModelSelector.currentNode().GetName() != self.STLRightModelSelector.currentNode().GetName()
+    
+    def onProcessSeperateBreast(self):
+        self.STLLogic.startProcessing(self.STLLeftModelSelector.currentNode(), self.STLRightModelSelector.currentNode())
+    
+    def onCleanupSTLButton(self):
+        self.STLLogic.cleanup()
 
     def onReload(self):
         ScriptedLoadableModuleWidget.onReload(self)
@@ -234,17 +265,17 @@ class OBJModelBuilderLogic(ScriptedLoadableModuleLogic):
 
     def initiate(self, widget):
         self.widget = widget
-        self.modifidedModelNode = None
+        self.createdModelNodes = []
+        self.markerName = "Reference_Breast_Position"
+        self.mainModelNode = None
 
     def showTextureOnModel(self, modelNode, textureImageNode):
         modelDisplayNode = modelNode.GetDisplayNode()
         modelDisplayNode.SetBackfaceCulling(0)
         textureImageFlipVert = vtk.vtkImageFlip()
         textureImageFlipVert.SetFilteredAxis(1)
-        textureImageFlipVert.SetInputConnection(
-            textureImageNode.GetImageDataConnection())
-        modelDisplayNode.SetTextureImageDataConnection(
-            textureImageFlipVert.GetOutputPort())
+        textureImageFlipVert.SetInputConnection(textureImageNode.GetImageDataConnection())
+        modelDisplayNode.SetTextureImageDataConnection(textureImageFlipVert.GetOutputPort())
 
     def convertTextureToPointAttribute(self, modelNode, textureImageNode):
         polyData = modelNode.GetPolyData()
@@ -303,18 +334,17 @@ class OBJModelBuilderLogic(ScriptedLoadableModuleLogic):
         """
         print("----Start Processing----")
         startTime = time.time()
-        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S',
-                                             time.localtime(startTime)) + "\n")
+        print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
+
+        self.mainModelNode = modelNode
 
         newPolyData = vtk.vtkPolyData()
         newPolyData.DeepCopy(modelNode.GetPolyData())
-        self.modifidedModelNode = self.createNewModelNode(
-            newPolyData, "Modified_Model")
+        self.modifidedModelNode = self.createNewModelNode(newPolyData, "Modified_Model")
         newModelNode = self.modifidedModelNode
 
         # 轉換顏色格式:QColor -> np.array
-        targetColor = np.array(
-            [targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
+        targetColor = np.array([targetColor.redF(), targetColor.greenF(), targetColor.blueF()])
         print("Selected Color: {}".format(targetColor))
 
         # 取得vtkMRMLModelNode讀取的檔案
@@ -436,29 +466,21 @@ class OBJModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         return geometryFilter.GetOutput()
 
-    def createNewModelNode(self, polyData, nodeName):
-        modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
-        modelNode.SetName(nodeName)
-        modelNode.CreateDefaultDisplayNodes()
-        modelNode.SetAndObservePolyData(polyData)
-
-        return modelNode
-
-    def setupFiducialNodeOperation(self, nodeName):
+    def setupFiducialNodeOperation(self):
         # Create fiducial node
         fiducialNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLMarkupsFiducialNode())
-        fiducialNode.SetName(nodeName)
+        fiducialNode.SetName(self.markerName)
 
         placeModePersistence = 1
         slicer.modules.markups.logic().StartPlaceMode(placeModePersistence)
 
-    def truncateBreastPolyData(self, nodeName):
+    def truncateBreastPolyData(self):
         interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
         interactionNode.SwitchToViewTransformMode()
         # also turn off place mode persistence if required
         interactionNode.SetPlaceModePersistence(0)
 
-        fiducialNode = slicer.util.getNode(nodeName)
+        fiducialNode = slicer.util.getNode(self.markerName)
         numFids = fiducialNode.GetNumberOfFiducials()
 
         breastPos = []
@@ -487,10 +509,11 @@ class OBJModelBuilderLogic(ScriptedLoadableModuleLogic):
             rawBreastPolyData = connectFilter.GetOutput()
             self.createNewModelNode(connectFilter.GetOutput(), "Breast_{}".format(i))
 
-            mergedPolyData = wallGenerator.generateWall(rawBreastPolyData)
+            mergedPolyData = wallGenerator.generateWall(rawBreastPolyData, True)
 
             self.createNewModelNode(mergedPolyData, "MergedPolyData")
 
+    """
     def calculateArea(self, polyData):
         Point_cordinates = polyData.GetPoints().GetData()
         numpy_coordinates = numpy_support.vtk_to_numpy(Point_cordinates)
@@ -535,18 +558,49 @@ class OBJModelBuilderLogic(ScriptedLoadableModuleLogic):
         area = float(area)/20
 
         return area
+    """
+
+    def createNewModelNode(self, polyData, nodeName):
+        modelNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLModelNode())
+        modelNode.SetName(nodeName)
+        modelNode.CreateDefaultDisplayNodes()
+        modelNode.SetAndObservePolyData(polyData)
+
+        self.createdModelNodes.append(modelNode)
+
+        return modelNode
+
+    def cleanup(self):
+        for node in self.createdModelNodes:
+            slicer.mrmlScene.RemoveNode(node)
+
+        while True:
+            try:
+                slicer.util.getNode(self.markerName)
+                slicer.mrmlScene.RemoveNode(slicer.util.getNode(self.markerName))
+            except:
+                break
+        
+        if self.mainModelNode:
+            self.mainModelNode.GetDisplayNode().VisibilityOn()
 
 class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     def initiate(self, widget):
         self.widget = widget
+        self.createdModelNodes = []
+        self.mainLeftBreastModelNode = None
+        self.mainRightBreastModelNode = None
 
-    def startPreprocessing(self, leftBreastModelNode, rightBreastModelNode):
+    def startProcessing(self, leftBreastModelNode, rightBreastModelNode):
         """
         Run the actual algorithm
         """
         print("----Start Processing----")
         startTime = time.time()
         print("Start time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(startTime)) + "\n")
+
+        self.mainLeftBreastModelNode = leftBreastModelNode
+        self.mainRightBreastModelNode = rightBreastModelNode
 
         leftBreastPolyData = vtk.vtkPolyData()
         rightBreastPolyData = vtk.vtkPolyData()
@@ -572,6 +626,13 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         leftBreastModelNode.GetDisplayNode().VisibilityOff()
         rightBreastModelNode.GetDisplayNode().VisibilityOff()
 
+        wallGenerator = BreastWallGenerator()
+
+        leftBreastPolyData = wallGenerator.generateWall(leftBreastPolyData, False)
+        self.createNewModelNode(leftBreastPolyData, "MergedLeftPolyData")
+        rightBreastPolyData = wallGenerator.generateWall(rightBreastPolyData, False)
+        self.createNewModelNode(rightBreastPolyData, "MergedRightPolyData")
+
         print("\n----Complete Processing----")
         stopTime = time.time()
         print("Complete time: " + time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stopTime)))
@@ -579,10 +640,10 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
 
         return True
 
-    def reduceAndCleanPolyData(self, modelNode):
+    def reduceAndCleanPolyData(self, polyData):
         # triangulate
         triangleFilter = vtk.vtkTriangleFilter()
-        triangleFilter.SetInputData(modelNode.GetPolyData())
+        triangleFilter.SetInputData(polyData)
         triangleFilter.Update()
 
         # decimate
@@ -628,27 +689,35 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         modelNode.CreateDefaultDisplayNodes()
         modelNode.SetAndObservePolyData(polyData)
 
+        self.createdModelNodes.append(modelNode)
+
         return modelNode
 
+    def cleanup(self):
+        for node in self.createdModelNodes:
+            slicer.mrmlScene.RemoveNode(node)
+        
+        self.leftBreastModelNode.GetDisplayNode().VisibilityOn()
+        self.rightBreastModelNode.GetDisplayNode().VisibilityOn()
+
 class BreastWallGenerator():
-    def generateWall(self, breastPolyData):
+    def generateWall(self, breastPolyData, ripEdge):
         refinedBreastPolyData = self.refineBreastPolyData(breastPolyData, 50)
 
-        rippedBreastPolyData = refinedBreastPolyData
-        for _ in range(3):  # 藉由直接移除n層boundary減少突出邊緣
-            _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)
-            rippedBreastPolyData = self.deletePoint(rippedBreastPolyData, edgeIds)
-            #self.createNewModelNode(rippedBreastPolyData, "Ripped_BreastPolyData_{}".format(i))
+        if ripEdge:
+            rippedBreastPolyData = refinedBreastPolyData
+            for _ in range(3):  # 藉由直接移除n層boundary減少突出邊緣
+                _, edgeIds = self.extractBoundaryPoints(rippedBreastPolyData)
+                rippedBreastPolyData = self.deletePoint(rippedBreastPolyData, edgeIds)
 
-        smoothedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, 2)
-        #self.createNewModelNode(smoothedBreastPolyData, "Smoothed_Breast_{}".format(i))
+            smoothedBreastPolyData = self.smoothBoundary(rippedBreastPolyData, 2)
+        else:
+            smoothedBreastPolyData = refinedBreastPolyData
 
         # 取得平滑後的邊緣
         edgePolydata, _ = self.extractBoundaryPoints(smoothedBreastPolyData)
-        #self.createNewModelNode(edgePolydata, "Smoothed_Breast_Edge_{}".format(i))
 
         wallMesh = self.createWallMesh(edgePolydata)
-        #self.createNewModelNode(wallMesh, "wallMesh_{}".format(i))
 
         mergedPolyData = self.mergeBreastAndBoundary(smoothedBreastPolyData, wallMesh)
         
