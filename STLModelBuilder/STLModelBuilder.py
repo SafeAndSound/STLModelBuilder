@@ -241,7 +241,7 @@ class STLModelBuilderWidget(ScriptedLoadableModuleWidget):
     
     # STL Process Functions
     def onSelectSTLInputData(self):
-        self.STLApplyButton.enabled = self.STLLeftModelSelector.currentNode() and self.STLRightModelSelector.currentNode() and self.STLLeftModelSelector.currentNode().GetName() != self.STLRightModelSelector.currentNode().GetName()
+        self.STLApplyButton.enabled = self.STLLeftModelSelector.currentNode() and self.STLRightModelSelector.currentNode()
     
     def onProcessSeperateBreast(self):
         self.STLLogic.startProcessing(self.STLLeftModelSelector.currentNode(), self.STLRightModelSelector.currentNode())
@@ -602,36 +602,41 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
         self.mainLeftBreastModelNode = leftBreastModelNode
         self.mainRightBreastModelNode = rightBreastModelNode
 
-        leftBreastPolyData = vtk.vtkPolyData()
-        rightBreastPolyData = vtk.vtkPolyData()
-        leftBreastPolyData.DeepCopy(leftBreastModelNode.GetPolyData())
-        rightBreastPolyData.DeepCopy(rightBreastModelNode.GetPolyData())
-
-        # 取得vtkMRMLModelNode讀取的檔案
-        fileName = leftBreastModelNode.GetStorageNode().GetFileName()
-        print("Left Breast File Path: {}".format(fileName))
-        fileName = rightBreastModelNode.GetStorageNode().GetFileName()
-        print("Right Breast File Path: {}".format(fileName))
-
-        print("Origin Left Breast Points: {}".format(leftBreastPolyData.GetNumberOfPoints()))
-        print("Origin Right Breast Points: {}".format(rightBreastPolyData.GetNumberOfPoints()))
-
-        # 處理PolyData (降低面數、破洞處理......)
-        leftBreastPolyData = self.reduceAndCleanPolyData(leftBreastPolyData)
-        rightBreastPolyData = self.reduceAndCleanPolyData(rightBreastPolyData)
-
-        print("Modified Left Breast Points: {}".format(leftBreastPolyData.GetNumberOfPoints()))
-        print("Modified Right Breast Points:: {}".format(rightBreastPolyData.GetNumberOfPoints()))
-
-        leftBreastModelNode.GetDisplayNode().VisibilityOff()
-        rightBreastModelNode.GetDisplayNode().VisibilityOff()
-
         wallGenerator = BreastWallGenerator()
 
-        leftBreastPolyData = wallGenerator.generateWall(leftBreastPolyData, False)
-        self.createNewModelNode(leftBreastPolyData, "MergedLeftPolyData")
-        rightBreastPolyData = wallGenerator.generateWall(rightBreastPolyData, False)
-        self.createNewModelNode(rightBreastPolyData, "MergedRightPolyData")
+        #檢查是否只有單邊乳房
+        hasLeftBreast = True
+        hasRightBreast = True
+        if leftBreastModelNode.GetName() == rightBreastModelNode.GetName():
+            name = leftBreastModelNode.GetName().lower()
+            hasLeftBreast = ('left' in name)
+            hasRightBreast = ('right' in name)
+            if not hasLeftBreast and not hasRightBreast:
+                hasLeftBreast = True
+
+        if hasLeftBreast:
+            leftBreastPolyData = vtk.vtkPolyData()
+            leftBreastPolyData.DeepCopy(leftBreastModelNode.GetPolyData())
+            fileName = leftBreastModelNode.GetStorageNode().GetFileName()
+            print("Left Breast File Path: {}".format(fileName))
+            print("Origin Left Breast Points: {}".format(leftBreastPolyData.GetNumberOfPoints()))
+            leftBreastPolyData = self.reduceAndCleanPolyData(leftBreastPolyData)
+            print("Modified Left Breast Points: {}".format(leftBreastPolyData.GetNumberOfPoints()))
+            leftBreastModelNode.GetDisplayNode().VisibilityOff()
+            leftBreastPolyData = wallGenerator.generateWall(leftBreastPolyData, False)
+            self.createNewModelNode(leftBreastPolyData, "MergedLeftPolyData")
+
+        if hasRightBreast:
+            rightBreastPolyData = vtk.vtkPolyData()
+            rightBreastPolyData.DeepCopy(rightBreastModelNode.GetPolyData())
+            fileName = rightBreastModelNode.GetStorageNode().GetFileName()
+            print("Right Breast File Path: {}".format(fileName))
+            print("Origin Right Breast Points: {}".format(rightBreastPolyData.GetNumberOfPoints()))
+            rightBreastPolyData = self.reduceAndCleanPolyData(rightBreastPolyData)
+            print("Modified Right Breast Points:: {}".format(rightBreastPolyData.GetNumberOfPoints()))
+            rightBreastModelNode.GetDisplayNode().VisibilityOff()
+            rightBreastPolyData = wallGenerator.generateWall(rightBreastPolyData, False)
+            self.createNewModelNode(rightBreastPolyData, "MergedRightPolyData")
 
         print("\n----Complete Processing----")
         stopTime = time.time()
@@ -696,9 +701,11 @@ class STLModelBuilderLogic(ScriptedLoadableModuleLogic):
     def cleanup(self):
         for node in self.createdModelNodes:
             slicer.mrmlScene.RemoveNode(node)
-        
-        self.leftBreastModelNode.GetDisplayNode().VisibilityOn()
-        self.rightBreastModelNode.GetDisplayNode().VisibilityOn()
+
+        if self.mainLeftBreastModelNode:
+            self.mainLeftBreastModelNode.GetDisplayNode().VisibilityOn()
+        if self.mainRightBreastModelNode:
+            self.mainRightBreastModelNode.GetDisplayNode().VisibilityOn()
 
 class BreastWallGenerator():
     def generateWall(self, breastPolyData, ripEdge):
@@ -811,6 +818,7 @@ class BreastWallGenerator():
         # print(numpy_coordinates)
         originPointCount = int(numpy_coordinates.shape[0])
 
+        """
         minx = bounds[0]
         maxx = bounds[1]
         miny = bounds[2]
@@ -825,8 +833,6 @@ class BreastWallGenerator():
 
         polyPoints = vtk.vtkPoints()
         polyPoints.DeepCopy(edgePolyData.GetPoints())
-
-        """
         t = 40
         vecx = [0.0, 0.0, 0.0]
         vecy = [0.0, 0.0, 0.0]
