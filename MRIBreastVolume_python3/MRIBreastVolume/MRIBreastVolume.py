@@ -3,6 +3,7 @@ import unittest
 import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
+import importlib
 import SimpleITK as sitk
 import sitkUtils
 import MRIBreastVolumeFunctions
@@ -215,9 +216,9 @@ class MRIBreastVolumeWidget(ScriptedLoadableModuleWidget):
         logic.Run(self.inputSelector.currentNode(), self.ROISelector.currentNode(), self.pointSelector.currentNode(), self.pectoralSmoothingIterationSpinBox.value)
 
     def onReload(self):
-        reload(MRIBreastVolumeFunctions.PectoralSideModule)
-        reload(MRIBreastVolumeFunctions.BreastSideModule)
-        reload(MRIBreastVolumeFunctions.SideBoundaryModule)
+        importlib.reload(MRIBreastVolumeFunctions.PectoralSideModule)
+        importlib.reload(MRIBreastVolumeFunctions.BreastSideModule)
+        importlib.reload(MRIBreastVolumeFunctions.SideBoundaryModule)
         ScriptedLoadableModuleWidget.onReload(self)
 
     def calculateStatistics(self):
@@ -336,6 +337,7 @@ class MRIBreastVolumeLogic(ScriptedLoadableModuleLogic):
             segmentationNode.AddSegmentFromBinaryLabelmapRepresentation(vtkRightImplant, "RightImplant", [0.0, 1.0, 1.0])
 
         logging.info('Processing completed')
+
         return True
 
     def BiasFieldCorrection(self, image):
