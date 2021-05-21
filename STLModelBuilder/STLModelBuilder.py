@@ -811,54 +811,27 @@ class BreastWallGenerator():
         return geometryFilter.GetOutput()
 
     def createWallMesh(self, edgePolyData):
-        bounds = edgePolyData.GetBounds()
-        Point_coordinates = edgePolyData.GetPoints().GetData()
-        numpy_coordinates = numpy_support.vtk_to_numpy(Point_coordinates)
+        numpy_coordinates = numpy_support.vtk_to_numpy(edgePolyData.GetPoints().GetData())
         print('size=', numpy_coordinates.shape, numpy_coordinates.size)
         # print(numpy_coordinates)
         originPointCount = int(numpy_coordinates.shape[0])
-
-        """
-        minx = bounds[0]
-        maxx = bounds[1]
-        miny = bounds[2]
-        maxy = bounds[3]
-        minz = bounds[4]
-        maxz = bounds[5]
-
-        avgx = float((minx + maxx) / 2)
-        avgy = float((miny + maxy) / 2)
-        # avgz = np.median(tmp_list)
-        avgz = float((minz + maxz) / 2)
-
-        polyPoints = vtk.vtkPoints()
-        polyPoints.DeepCopy(edgePolyData.GetPoints())
-        t = 40
-        vecx = [0.0, 0.0, 0.0]
-        vecy = [0.0, 0.0, 0.0]
-        vecz = [0.0, 0.0, 0.0]
-        x = [0.0, 0.0, 0.0]
-        y = [0.0, 0.0, 0.0]
-        z = [0.0, 0.0, 0.0]
-        for i in range(originPointCount-2):
-            for k in range(3):
-                vecx[k] = numpy_coordinates[i+k][0] - avgx
-                vecy[k] = numpy_coordinates[i+k][1] - avgy
-                vecz[k] = numpy_coordinates[i+k][2] - avgz
-                x[k] = float(vecx[k] / (t+1))
-                y[k] = float(vecy[k] / (t+1))
-                z[k] = float(vecz[k] / (t+1))
-            for j in range(1, (t+1)):
-                if j % 2 == 1:
-                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[0], avgy + j * y[0], avgz + j * z[0])
-                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[2], avgy + j * y[2], avgz + j * z[2])
-                else:
-                    polyPoints.InsertPoint(numpy_coordinates.shape[0] + t * i + j, avgx + j * x[1], avgy + j * y[1], avgz + j * z[1])
-            i += 3
- 
-        #polyPoints.InsertPoint(originPointCount, avgx, avgy, avgz)
-        """
         
+        edgePolyData.GetLines().InitTraversal()
+        pointIdLink = [-1] * edgePolyData.GetNumberOfLines()
+        idList = vtk.vtkIdList()
+        while edgePolyData.GetLines().GetNextCell(idList):
+            if pointIdLink[idList.GetId(0)] != -1:
+                print("line from id {} already assign!!".format(idList.GetId(0)))
+            else:
+                pointIdLink[idList.GetId(0)] = idList.GetId(1)
+
+        pointIdList = [0]
+        while pointIdLink[pointIdList[-1]] != 0 and pointIdLink[pointIdList[-1]] != 1:
+            next = pointIdLink[pointIdList[-1]]
+            pointIdList.append(next)
+        
+        print(len(pointIdList))
+
         t = 1000
         polyPoints = vtk.vtkPoints()
         polyPoints.DeepCopy(edgePolyData.GetPoints())
