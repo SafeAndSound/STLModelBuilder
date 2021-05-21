@@ -35,7 +35,7 @@ class STLModelBuilder(ScriptedLoadableModule):
         self.parent.categories = ["NCTU"]
         self.parent.dependencies = []
         # replace with "Firstname Lastname (Organization)"
-        self.parent.contributors = ["NCTU CG Lab"]
+        self.parent.contributors = ["NCTU Computer Graphics Laboratory"]
         self.parent.helpText = """
 This is an example of scripted loadable module bundled in an extension.
 It performs a simple thresholding on the input volume and optionally captures a screenshot.

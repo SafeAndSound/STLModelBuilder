@@ -6,7 +6,7 @@ project(STLModelBuilder)
 # Extension meta-information
 set(EXTENSION_HOMEPAGE "http://slicer.org/slicerWiki/index.php/Documentation/Nightly/Extensions/STLModelBuilder")
 set(EXTENSION_CATEGORY "NCTU")
-set(EXTENSION_CONTRIBUTORS "John Doe (AnyWare Corp.)")
+set(EXTENSION_CONTRIBUTORS "NCTU Computer Graphics Laboratory")
 set(EXTENSION_DESCRIPTION "This is an example of a simple extension")
 set(EXTENSION_ICONURL "http://www.example.com/Slicer/Extensions/STLModelBuilder.png")
 set(EXTENSION_SCREENSHOTURLS "http://www.example.com/Slicer/Extensions/STLModelBuilder/Screenshots/1.png")
